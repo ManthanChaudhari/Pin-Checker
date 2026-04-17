@@ -60,7 +60,7 @@ class PinService {
     return uploaded;
   }
 
-  /** Download pins filtered by status */
+  /** Download pins filtered by status — returns array of { pin, status } */
   async downloadPins(filter = "all") {
     const snap = await this._db.collection(this._collection).get();
     return snap.docs
@@ -71,7 +71,11 @@ class PinService {
         if (filter === "unchecked")   return val === null || val === undefined;
         return true; // "all"
       })
-      .map(d => d.data().pin || d.id);
+      .map(d => {
+        const val = d.data().available;
+        const status = val === true ? "Available" : val === false ? "Unavailable" : "Unchecked";
+        return { pin: d.data().pin || d.id, status };
+      });
   }
 
   // ─── REST method (content.js — no SDK) ───────────────────────────────────

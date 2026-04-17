@@ -308,21 +308,31 @@ document.getElementById("download-btn").addEventListener("click", async () => {
   downloadBtn.disabled = true;
   downloadStatus.innerHTML = '<span class="spinner"></span> Fetching pins...';
   try {
-    const pins = await pinService.downloadPins(activeFilter);
-    if (!pins.length) {
+    const rows = await pinService.downloadPins(activeFilter);
+    if (!rows.length) {
       downloadStatus.innerHTML = `<span class="error">No pins found for this filter.</span>`;
       downloadBtn.disabled = false; return;
     }
-    const isCSV    = activeFormat === "csv";
-    const content  = isCSV ? "pin\n" + pins.join("\n") : pins.join("\n");
-    const filename = `pins_${activeFilter}.${activeFormat}`;
-    const blob     = new Blob([content], { type: isCSV ? "text/csv" : "text/plain" });
-    const url      = URL.createObjectURL(blob);
-    const a        = document.createElement("a");
+
+    let content, filename;
+    if (activeFormat === "csv") {
+      // Two columns: pin, status
+      content  = "pin,status\n" + rows.map(r => `${r.pin},${r.status}`).join("\n");
+      filename = `pins_${activeFilter}.csv`;
+    } else {
+      // TXT: tab-separated
+      content  = "pin\tstatus\n" + rows.map(r => `${r.pin}\t${r.status}`).join("\n");
+      filename = `pins_${activeFilter}.txt`;
+    }
+
+    const mime = activeFormat === "csv" ? "text/csv" : "text/plain";
+    const blob = new Blob([content], { type: mime });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
     a.href = url; a.download = filename; a.click();
     URL.revokeObjectURL(url);
-    downloadStatus.innerHTML = `<span class="success">✓ Downloaded ${pins.length} pins.</span>`;
-    downloadInfo.textContent = `Last export: ${pins.length} pins (${activeFilter})`;
+    downloadStatus.innerHTML = `<span class="success">✓ Downloaded ${rows.length} pins.</span>`;
+    downloadInfo.textContent = `Last export: ${rows.length} pins (${activeFilter})`;
   } catch (err) {
     downloadStatus.innerHTML = `<span class="error">✗ ${err.message}</span>`;
   } finally {
