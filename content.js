@@ -1,32 +1,33 @@
 // content.js — injected ONLY into https://redeem.hype.games/widget/
 
 const STORAGE_KEY = "pinmanager_queue";
+const TOKEN_KEY   = "pinmanager_token";
 
 if (!location.href.startsWith("https://redeem.hype.games/widget/")) {
   throw new Error("[PinManager] Not the widget URL, skipping.");
 }
 
 const pinService = new PinService({ projectId: "pin-checker-d183d" });
-
 let running = false;
-let startedByMessage = false; // prevents load event from double-starting
 
-// ─── On load: resume queue after reload ──────────────────────────────────────
+// ─── On load ──────────────────────────────────────────────────────────────────
 window.addEventListener("load", async () => {
-  await sleep(1000);
-
-  // If this load was triggered by the message listener on the same page, skip
-  if (startedByMessage) return;
+  await sleep(2000);
 
   const raw = sessionStorage.getItem(STORAGE_KEY);
   if (!raw) return;
 
   let state;
-  try { state = JSON.parse(raw); } catch (_) { sessionStorage.removeItem(STORAGE_KEY); return; }
-
-  if (!state.running || !Array.isArray(state.pins) || state.pins.length === 0) {
+  try { state = JSON.parse(raw); } catch (_) {
     sessionStorage.removeItem(STORAGE_KEY);
-    chrome.runtime.sendMessage({ action: "done" }).catch(() => {});
+    return;
+  }
+
+  // Only resume if explicitly marked running AND has pins
+  if (!state.running || !Array.isArray(state.pins) || state.pins.length === 0) {
+    // Clean stale state — do NOT send "done" here, it was already sent
+    sessionStorage.removeItem(STORAGE_KEY);
+    sessionStorage.removeItem(TOKEN_KEY);
     return;
   }
 
@@ -35,70 +36,65 @@ window.addEventListener("load", async () => {
   await processPins(state.pins);
 });
 
-// ─── Message listener from popup ─────────────────────────────────────────────
+// ─── Message listener ─────────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.action === "start") {
     if (running) { sendResponse({ ok: false, reason: "already running" }); return; }
 
-    if (msg.token) sessionStorage.setItem("pinmanager_token", msg.token);
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ running: true, pins: msg.pins }));
+    if (msg.token) sessionStorage.setItem(TOKEN_KEY, msg.token);
+    // Write queue AFTER setting running=true so load event won't race
     running = true;
-    startedByMessage = true; // tell load event not to double-start
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ running: true, pins: msg.pins }));
 
     waitForElement("#hpws-pin", 8000).then(() => processPins(msg.pins));
     sendResponse({ ok: true });
   }
+
   if (msg.action === "stop") {
     running = false;
     sessionStorage.removeItem(STORAGE_KEY);
-    sessionStorage.removeItem("pinmanager_token");
+    sessionStorage.removeItem(TOKEN_KEY);
     sendResponse({ ok: true });
   }
 });
 
 // ─── Main loop ────────────────────────────────────────────────────────────────
 async function processPins(pins) {
-  if (!pins || pins.length === 0) {
-    // Nothing left — we're done
+  if (!running || !pins || pins.length === 0) {
     running = false;
     sessionStorage.removeItem(STORAGE_KEY);
-    sessionStorage.removeItem("pinmanager_token");
+    sessionStorage.removeItem(TOKEN_KEY);
     chrome.runtime.sendMessage({ action: "done" }).catch(() => {});
     return;
   }
 
-  if (!running) return;
-
-  // Always process only the FIRST pin in the current queue
   const { pin, docId } = pins[0];
-  const remaining = pins.slice(1);
+  const remaining      = pins.slice(1);
 
   const success = await tryPin(pin);
 
   // Update Firestore
-  const token = sessionStorage.getItem("pinmanager_token");
+  const token = sessionStorage.getItem(TOKEN_KEY);
   try {
     await pinService.updatePinAvailability(docId, success, token);
   } catch (err) {
     console.error("[PinManager] Firestore update failed:", err);
   }
 
-  // Notify popup (best-effort — popup may be closed)
+  // Notify popup
   chrome.runtime.sendMessage({ action: "pinResult", pin, docId, success }).catch(() => {});
 
   if (remaining.length > 0) {
-    // Save remaining pins and reload for a fresh form
+    // Save ONLY remaining, keep running:true, then reload
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ running: true, pins: remaining }));
     window.location.reload();
-    // Script dies here — load event picks up remaining on next load
+    // Dies here — load event resumes with remaining
   } else {
-    // All pins processed — clean up and signal done
+    // Last pin — clear everything THEN send done (no reload)
     running = false;
     sessionStorage.removeItem(STORAGE_KEY);
-    sessionStorage.removeItem("pinmanager_token");
+    sessionStorage.removeItem(TOKEN_KEY);
     chrome.runtime.sendMessage({ action: "done" }).catch(() => {});
-    // Still reload to reset the form to a clean state
-    window.location.reload();
   }
 }
 
@@ -129,24 +125,13 @@ async function tryPin(pin) {
   const beforeHTML = contentEl ? contentEl.innerHTML : document.body.innerHTML;
 
   btn.click();
-
-  // Wait 5 seconds for the response
   await sleep(5000);
 
   const container = contentEl || document.body;
-
-  // Check specifically for the "already used" h1 message inside .hpws-content
   const h1 = container.querySelector("h1");
-  if (h1 && h1.textContent.includes("Esse PIN já foi utilizado")) {
-    return false; // unavailable
-  }
 
-  // Any other DOM change = something else rendered (success/reward) = available
-  if (container.innerHTML !== beforeHTML) {
-    return true;
-  }
-
-  // No change at all = treat as unavailable
+  if (h1 && h1.textContent.includes("Esse PIN já foi utilizado")) return false;
+  if (container.innerHTML !== beforeHTML) return true;
   return false;
 }
 

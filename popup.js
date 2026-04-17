@@ -174,6 +174,9 @@ async function startAutomation() {
   startBtn.style.display = "none";
   stopBtn.style.display = "block";
 
+  // Always refresh stats first so local counters are accurate for live updates
+  await loadStats();
+
   let pins;
   try {
     pins = await pinService.getUncheckedPins();
@@ -212,21 +215,75 @@ async function startAutomation() {
     if (msg.action === "done") {
       chrome.runtime.onMessage.removeListener(listener);
       runStatus.innerHTML = `<span class="success">✓ Done — ${processed} pins processed.</span>`;
-      resetRunUI();
+      
+      // Explicitly stop automation to clean up the content script state
+      stopAutomation();
+      
       loadStats(); // final refresh from Firestore
     }
   };
   chrome.runtime.onMessage.addListener(listener);
 
   const token = await auth.currentUser.getIdToken();
-  chrome.tabs.sendMessage(tab.id, { action: "start", pins, token });
+
+  // Find the widget iframe frame — retry up to 10s in case it's still loading
+  runStatus.textContent = `Connecting to widget frame...`;
+  const widgetFrame = await findWidgetFrame(tab.id, 10000);
+
+  if (!widgetFrame) {
+    runStatus.innerHTML = `<span class="error">Widget iframe not found. Make sure https://canjea.me is open and fully loaded.</span>`;
+    resetRunUI(); return;
+  }
+
+  // Send start message — retry until content script is ready
+  const sent = await sendToFrame(tab.id, widgetFrame.frameId, { action: "start", pins, token }, 8000);
+  if (!sent) {
+    runStatus.innerHTML = `<span class="error">Could not reach content script in widget frame. Try reloading the page.</span>`;
+    resetRunUI(); return;
+  }
 }
 
 async function stopAutomation() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (tab) chrome.tabs.sendMessage(tab.id, { action: "stop" });
+  if (tab) {
+    const widgetFrame = await findWidgetFrame(tab.id, 3000);
+    if (widgetFrame) {
+      sendToFrame(tab.id, widgetFrame.frameId, { action: "stop" }, 2000).catch(() => {});
+    }
+  }
   runStatus.textContent = "Stopped.";
   resetRunUI();
+}
+
+// ─── Frame helpers ────────────────────────────────────────────────────────────
+
+/** Poll until the widget frame appears in the tab, up to `timeout` ms */
+async function findWidgetFrame(tabId, timeout) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    try {
+      const frames = await chrome.webNavigation.getAllFrames({ tabId });
+      const found = frames && frames.find(f => f.url && f.url.startsWith("https://redeem.hype.games/widget/"));
+      if (found) return found;
+    } catch (_) {}
+    await new Promise(r => setTimeout(r, 500));
+  }
+  return null;
+}
+
+/** Send a message to a specific frame, retrying until content script responds or timeout */
+async function sendToFrame(tabId, frameId, msg, timeout) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    try {
+      await chrome.tabs.sendMessage(tabId, msg, { frameId });
+      return true; // success
+    } catch (_) {
+      // Content script not ready yet — wait and retry
+      await new Promise(r => setTimeout(r, 600));
+    }
+  }
+  return false;
 }
 
 function resetRunUI() {
