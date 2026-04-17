@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Pin Manager</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { width: 420px; min-height: 480px; font-family: 'Segoe UI', sans-serif; background: #0f0f1a; color: #e0e0e0; }
+
+    .tabs { display: flex; background: #1a1a2e; border-bottom: 2px solid #6c63ff; }
+    .tab-btn { flex: 1; padding: 12px 0; background: none; border: none; color: #888; font-size: 13px; cursor: pointer; transition: all .2s; }
+    .tab-btn.active { color: #6c63ff; font-weight: 600; background: #0f0f1a; }
+    .tab-btn:hover:not(.active) { color: #ccc; }
+
+    .tab-content { display: none; padding: 20px; }
+    .tab-content.active { display: block; }
+
+    .drop-zone {
+      border: 2px dashed #6c63ff; border-radius: 10px; padding: 30px;
+      text-align: center; cursor: pointer; transition: background .2s;
+    }
+    .drop-zone:hover, .drop-zone.dragover { background: #1e1e3a; }
+    .drop-zone svg { margin-bottom: 10px; }
+    .drop-zone p { font-size: 13px; color: #aaa; margin-top: 6px; }
+    #file-input { display: none; }
+
+    .btn {
+      display: block; width: 100%; padding: 11px; margin-top: 14px;
+      background: #6c63ff; color: #fff; border: none; border-radius: 8px;
+      font-size: 14px; cursor: pointer; transition: background .2s;
+    }
+    .btn:hover { background: #574fd6; }
+    .btn:disabled { background: #444; cursor: not-allowed; }
+
+    #upload-status { margin-top: 12px; font-size: 13px; min-height: 20px; }
+    #preview-count { font-size: 12px; color: #aaa; margin-top: 8px; }
+
+    .stats { display: flex; gap: 14px; margin-bottom: 20px; }
+    .stat-card {
+      flex: 1; background: #1a1a2e; border-radius: 10px; padding: 18px;
+      text-align: center; border: 1px solid #2a2a4a;
+    }
+    .stat-card .num { font-size: 32px; font-weight: 700; }
+    .stat-card .label { font-size: 12px; color: #888; margin-top: 4px; }
+    .available .num { color: #4ade80; }
+    .unavailable .num { color: #f87171; }
+    .total .num { color: #6c63ff; }
+    .unchecked .num { color: #facc15; }
+
+    .refresh-btn { background: #1a1a2e; color: #6c63ff; border: 1px solid #6c63ff; }
+    .refresh-btn:hover { background: #6c63ff; color: #fff; }
+
+    .filter-group { display: flex; gap: 10px; margin-bottom: 14px; }
+    .filter-btn {
+      flex: 1; padding: 9px; background: #1a1a2e; color: #888;
+      border: 1px solid #2a2a4a; border-radius: 8px; cursor: pointer; font-size: 13px;
+    }
+    .filter-btn.active { border-color: #6c63ff; color: #6c63ff; background: #1e1e3a; }
+
+    .format-group { display: flex; gap: 10px; margin-bottom: 14px; }
+    .format-btn {
+      flex: 1; padding: 8px; background: #1a1a2e; color: #888;
+      border: 1px solid #2a2a4a; border-radius: 8px; cursor: pointer; font-size: 12px;
+    }
+    .format-btn.active { border-color: #4ade80; color: #4ade80; }
+
+    #download-info { font-size: 12px; color: #aaa; margin-bottom: 10px; }
+
+    .spinner {
+      display: inline-block; width: 14px; height: 14px;
+      border: 2px solid #ffffff44; border-top-color: #fff;
+      border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .success { color: #4ade80; }
+    .error { color: #f87171; }
+
+    /* Login screen */
+    #login-screen {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; padding: 40px 30px; min-height: 480px;
+    }
+    #login-screen .logo { font-size: 36px; margin-bottom: 8px; }
+    #login-screen h2 { color: #6c63ff; font-size: 18px; margin-bottom: 4px; }
+    #login-screen p { color: #666; font-size: 12px; margin-bottom: 28px; }
+    #login-screen input {
+      width: 100%; padding: 11px 14px; margin-bottom: 12px;
+      background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 8px;
+      color: #e0e0e0; font-size: 13px; outline: none; transition: border .2s;
+    }
+    #login-screen input:focus { border-color: #6c63ff; }
+    #login-error { color: #f87171; font-size: 12px; margin-bottom: 8px; min-height: 18px; text-align: center; }
+    #login-btn { margin-top: 0; }
+  </style>
+</head>
+<body>
+
+<!-- LOGIN SCREEN -->
+<div id="login-screen">
+  <div class="logo">🔐</div>
+  <h2>Pin Manager</h2>
+  <p>Sign in to your account</p>
+  <input type="email" id="login-email" placeholder="Email" autocomplete="email" />
+  <input type="password" id="login-pass" placeholder="Password" autocomplete="current-password" />
+  <div id="login-error"></div>
+  <button class="btn" id="login-btn">Sign In</button>
+</div>
+
+<!-- MAIN APP -->
+<div id="app" style="display:none">
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="upload">📤 Upload</button>
+    <button class="tab-btn" data-tab="dashboard">📊 Dashboard</button>
+    <button class="tab-btn" data-tab="download">📥 Download</button>
+  </div>
+
+  <!-- UPLOAD TAB -->
+  <div id="tab-upload" class="tab-content active">
+    <div class="drop-zone" id="drop-zone">
+      <svg width="40" height="40" fill="none" viewBox="0 0 24 24" stroke="#6c63ff" stroke-width="1.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+      </svg>
+      <p>Drop your Excel / CSV file here</p>
+      <p style="font-size:11px; margin-top:4px;">or click to browse</p>
+      <input type="file" id="file-input" accept=".csv,.xlsx,.xls" />
+    </div>
+    <div id="preview-count"></div>
+    <button class="btn" id="upload-btn" disabled>Upload Pins to Firestore</button>
+    <div id="upload-status"></div>
+  </div>
+
+  <!-- DASHBOARD TAB -->
+  <div id="tab-dashboard" class="tab-content">
+    <div class="stats">
+      <div class="stat-card total">
+        <div class="num" id="stat-total">—</div>
+        <div class="label">Total</div>
+      </div>
+      <div class="stat-card unchecked">
+        <div class="num" id="stat-unchecked">—</div>
+        <div class="label">Unchecked</div>
+      </div>
+      <div class="stat-card available">
+        <div class="num" id="stat-available">—</div>
+        <div class="label">Available</div>
+      </div>
+      <div class="stat-card unavailable">
+        <div class="num" id="stat-unavailable">—</div>
+        <div class="label">Unavailable</div>
+      </div>
+    </div>
+    <button class="btn refresh-btn" id="refresh-btn">↻ Refresh Stats</button>
+
+    <div style="display:flex; gap:10px; margin-top:14px;">
+      <button class="btn" id="start-btn" style="margin-top:0; background:#4ade80; color:#0f0f1a;">▶ Start</button>
+      <button class="btn" id="stop-btn" style="margin-top:0; background:#f87171; color:#0f0f1a; display:none;">■ Stop</button>
+    </div>
+    <div id="run-status" style="margin-top:10px; font-size:12px; color:#aaa; min-height:18px;"></div>
+    <div id="dash-status" style="margin-top:6px; font-size:13px;"></div>
+  </div>
+
+  <!-- DOWNLOAD TAB -->
+  <div id="tab-download" class="tab-content">
+    <p style="font-size:13px; color:#aaa; margin-bottom:12px;">Filter pins to download:</p>
+    <div class="filter-group">
+      <button class="filter-btn active" data-filter="all">All</button>
+      <button class="filter-btn" data-filter="available">Available</button>
+      <button class="filter-btn" data-filter="unavailable">Unavailable</button>
+    </div>
+    <p style="font-size:13px; color:#aaa; margin-bottom:8px;">Format:</p>
+    <div class="format-group">
+      <button class="format-btn active" data-format="csv">CSV</button>
+      <button class="format-btn" data-format="txt">TXT (one per line)</button>
+    </div>
+    <div id="download-info"></div>
+    <button class="btn" id="download-btn">Download Pins</button>
+    <div id="download-status" style="margin-top:10px; font-size:13px;"></div>
+  </div>
+
+</div> <!-- end #app -->
+
+<script src="xlsx.min.js"></script>
+<script src="firebase-compat.js"></script>
+<script src="firebase-auth-compat.js"></script>
+<script src="firestore.service.js"></script>
+<script src="popup.js"></script>
+</body>
+</html>

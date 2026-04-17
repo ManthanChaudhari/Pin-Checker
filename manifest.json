@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Pin Manager",
+  "version": "1.0",
+  "description": "Upload, manage and download pins in Firestore",
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "permissions": ["storage", "tabs", "scripting"],
+  "host_permissions": [
+    "https://*.googleapis.com/*",
+    "https://firestore.googleapis.com/*",
+    "https://*.firebaseio.com/*",
+    "https://canjea.me/*",
+    "https://redeem.hype.games/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://redeem.hype.games/widget/"],
+      "js": ["firestore.service.js", "content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["firebase-compat.js", "firebase-auth-compat.js", "xlsx.min.js", "firestore.service.js", "popup.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
