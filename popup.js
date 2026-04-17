@@ -133,9 +133,6 @@ uploadBtn.addEventListener("click", async () => {
 });
 
 // ─── Dashboard Tab ────────────────────────────────────────────────────────────
-// Local counters updated live during automation
-let _localTotal = 0, _localAvailable = 0, _localUnavailable = 0, _localUnchecked = 0;
-
 async function loadStats() {
   const dashStatus = document.getElementById("dash-status");
   dashStatus.innerHTML = '<span class="spinner"></span> Loading...';
@@ -202,24 +199,16 @@ async function startAutomation() {
   let processed = 0;
   const listener = (msg) => {
     if (msg.action === "pinResult") {
-      // Cap processed to total to prevent 9/7 display
       processed = Math.min(processed + 1, total);
       runStatus.textContent = `Processing... ${processed}/${total} — Pin: ${msg.pin.slice(0, 8)}… ${msg.success ? "✓" : "✗"}`;
-
-      // Update local stats live
-      _localUnchecked = Math.max(0, _localUnchecked - 1);
-      if (msg.success) _localAvailable++;
-      else             _localUnavailable++;
-      setStatEls(_localTotal, _localAvailable, _localUnavailable, _localUnchecked);
+      // Pull real values from Firestore after each pin so dashboard is always accurate
+      loadStats();
     }
     if (msg.action === "done") {
       chrome.runtime.onMessage.removeListener(listener);
       runStatus.innerHTML = `<span class="success">✓ Done — ${processed} pins processed.</span>`;
-      
-      // Explicitly stop automation to clean up the content script state
       stopAutomation();
-      
-      loadStats(); // final refresh from Firestore
+      loadStats();
     }
   };
   chrome.runtime.onMessage.addListener(listener);
