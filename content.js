@@ -3,7 +3,7 @@
 const STORAGE_KEY = "pinmanager_queue";
 const TOKEN_KEY   = "pinmanager_token";
 
-if (!location.href.startsWith("https://redeem.hype.games/widget/")) {
+if (!location.href.startsWith("https://redeem.hype.games/widget")) {
   throw new Error("[PinManager] Not the widget URL, skipping.");
 }
 

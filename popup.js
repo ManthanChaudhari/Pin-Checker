@@ -18,6 +18,9 @@ const pinService = new PinService({ db, projectId: "pin-checker-d183d" });
 const UUID_REGEX = /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/g;
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
+const HARDCODED_EMAIL = "chaudharimanthan05@gmail.com";
+const HARDCODED_PASS  = "Manthan.pinCheck@03";
+
 const loginScreen = document.getElementById("login-screen");
 const appDiv      = document.getElementById("app");
 const loginBtn    = document.getElementById("login-btn");
@@ -34,20 +37,15 @@ auth.onAuthStateChanged(user => {
 });
 
 loginBtn.addEventListener("click", doLogin);
-document.getElementById("login-pass").addEventListener("keydown", e => {
-  if (e.key === "Enter") doLogin();
-});
 
 async function doLogin() {
-  const email = document.getElementById("login-email").value.trim();
-  const pass  = document.getElementById("login-pass").value;
   loginError.textContent = "";
   loginBtn.disabled = true;
   loginBtn.innerHTML = '<span class="spinner"></span> Signing in...';
   try {
-    await auth.signInWithEmailAndPassword(email, pass);
+    await auth.signInWithEmailAndPassword(HARDCODED_EMAIL, HARDCODED_PASS);
   } catch (_) {
-    loginError.textContent = "Invalid email or password.";
+    loginError.textContent = "Sign in failed. Please try again.";
   } finally {
     loginBtn.disabled = false;
     loginBtn.textContent = "Sign In";
@@ -132,6 +130,36 @@ uploadBtn.addEventListener("click", async () => {
   }
 });
 
+// ─── Delete ───────────────────────────────────────────────────────────────────
+let activeDelFilter = "all";
+
+document.querySelectorAll(".del-filter-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".del-filter-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    activeDelFilter = btn.dataset.del;
+  });
+});
+
+document.getElementById("delete-btn").addEventListener("click", async () => {
+  const deleteBtn    = document.getElementById("delete-btn");
+  const deleteStatus = document.getElementById("delete-status");
+
+  const label = activeDelFilter === "all" ? "ALL" : activeDelFilter;
+  if (!confirm(`Delete all ${label} pins? This cannot be undone.`)) return;
+
+  deleteBtn.disabled = true;
+  deleteStatus.innerHTML = '<span class="spinner"></span> Deleting...';
+  try {
+    const deleted = await pinService.deletePins(activeDelFilter);
+    deleteStatus.innerHTML = `<span class="success">✓ ${deleted} pins deleted.</span>`;
+  } catch (err) {
+    deleteStatus.innerHTML = `<span class="error">✗ ${err.message}</span>`;
+  } finally {
+    deleteBtn.disabled = false;
+  }
+});
+
 // ─── Dashboard Tab ────────────────────────────────────────────────────────────
 async function loadStats() {
   const dashStatus = document.getElementById("dash-status");
@@ -191,8 +219,8 @@ async function startAutomation() {
   runStatus.textContent = `Starting — ${total} pins to process...`;
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab || !tab.url || (!tab.url.includes("canjea.me") && !tab.url.includes("redeem.hype.games"))) {
-    runStatus.innerHTML = `<span class="error">Please open https://canjea.me or https://redeem.hype.games/widget/ in the active tab first.</span>`;
+  if (!tab || !tab.url || !tab.url.includes("redeem.hype.games")) {
+    runStatus.innerHTML = `<span class="error">Please open https://redeem.hype.games/widget/ in the active tab first.</span>`;
     resetRunUI(); return;
   }
 
@@ -220,7 +248,7 @@ async function startAutomation() {
   const widgetFrame = await findWidgetFrame(tab.id, 10000);
 
   if (!widgetFrame) {
-    runStatus.innerHTML = `<span class="error">Widget iframe not found. Make sure https://canjea.me is open and fully loaded.</span>`;
+    runStatus.innerHTML = `<span class="error">Widget iframe not found. Make sure https://redeem.hype.games/widget is open and fully loaded.</span>`;
     resetRunUI(); return;
   }
 
@@ -252,7 +280,7 @@ async function findWidgetFrame(tabId, timeout) {
   while (Date.now() - start < timeout) {
     try {
       const frames = await chrome.webNavigation.getAllFrames({ tabId });
-      const found = frames && frames.find(f => f.url && f.url.startsWith("https://redeem.hype.games/widget/"));
+      const found = frames && frames.find(f => f.url && f.url.startsWith("https://redeem.hype.games/widget"));
       if (found) return found;
     } catch (_) {}
     await new Promise(r => setTimeout(r, 500));
@@ -260,13 +288,22 @@ async function findWidgetFrame(tabId, timeout) {
   return null;
 }
 
-/** Send a message to a specific frame, retrying until content script responds or timeout */
+/** Send a message to a specific frame, retrying until delivery succeeds or timeout */
 async function sendToFrame(tabId, frameId, msg, timeout) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
     try {
-      await chrome.tabs.sendMessage(tabId, msg, { frameId });
-      return true; // success
+      // Use a promise wrapper so we can catch the "no receiving end" error
+      await new Promise((resolve, reject) => {
+        chrome.tabs.sendMessage(tabId, msg, { frameId }, (response) => {
+          if (chrome.runtime.lastError) {
+            reject(chrome.runtime.lastError);
+          } else {
+            resolve(response);
+          }
+        });
+      });
+      return true; // delivered successfully
     } catch (_) {
       // Content script not ready yet — wait and retry
       await new Promise(r => setTimeout(r, 600));

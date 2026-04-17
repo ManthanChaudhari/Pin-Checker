@@ -57,6 +57,12 @@
     }
     .filter-btn.active { border-color: #6c63ff; color: #6c63ff; background: #1e1e3a; }
 
+    .del-filter-btn {
+      flex: 1; padding: 8px; background: #1a1a2e; color: #888;
+      border: 1px solid #2a2a4a; border-radius: 8px; cursor: pointer; font-size: 12px;
+    }
+    .del-filter-btn.active { border-color: #f87171; color: #f87171; background: #2a1a1a; }
+
     .format-group { display: flex; gap: 10px; margin-bottom: 14px; }
     .format-btn {
       flex: 1; padding: 8px; background: #1a1a2e; color: #888;
@@ -81,14 +87,7 @@
       justify-content: center; padding: 40px 30px; min-height: 480px;
     }
     #login-screen .logo { font-size: 36px; margin-bottom: 8px; }
-    #login-screen h2 { color: #6c63ff; font-size: 18px; margin-bottom: 4px; }
-    #login-screen p { color: #666; font-size: 12px; margin-bottom: 28px; }
-    #login-screen input {
-      width: 100%; padding: 11px 14px; margin-bottom: 12px;
-      background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 8px;
-      color: #e0e0e0; font-size: 13px; outline: none; transition: border .2s;
-    }
-    #login-screen input:focus { border-color: #6c63ff; }
+    #login-screen h2 { color: #6c63ff; font-size: 18px; margin-bottom: 24px; }
     #login-error { color: #f87171; font-size: 12px; margin-bottom: 8px; min-height: 18px; text-align: center; }
     #login-btn { margin-top: 0; }
   </style>
@@ -99,9 +98,6 @@
 <div id="login-screen">
   <div class="logo">🔐</div>
   <h2>Pin Manager</h2>
-  <p>Sign in to your account</p>
-  <input type="email" id="login-email" placeholder="Email" autocomplete="email" />
-  <input type="password" id="login-pass" placeholder="Password" autocomplete="current-password" />
   <div id="login-error"></div>
   <button class="btn" id="login-btn">Sign In</button>
 </div>
@@ -128,6 +124,19 @@
     <div id="preview-count"></div>
     <button class="btn" id="upload-btn" disabled>Upload Pins to Firestore</button>
     <div id="upload-status"></div>
+
+    <!-- DELETE SECTION -->
+    <div style="margin-top:24px; border-top:1px solid #2a2a4a; padding-top:18px;">
+      <p style="font-size:13px; color:#aaa; margin-bottom:10px;">Delete pins:</p>
+      <div class="filter-group">
+        <button class="del-filter-btn active" data-del="all">All</button>
+        <button class="del-filter-btn" data-del="available">Available</button>
+        <button class="del-filter-btn" data-del="unavailable">Unavailable</button>
+        <button class="del-filter-btn" data-del="unchecked">Unchecked</button>
+      </div>
+      <button class="btn" id="delete-btn" style="background:#f87171; color:#0f0f1a;">🗑 Delete Pins</button>
+      <div id="delete-status" style="margin-top:10px; font-size:13px; min-height:18px;"></div>
+    </div>
   </div>
 
   <!-- DASHBOARD TAB -->

@@ -11,12 +11,11 @@
     "https://*.googleapis.com/*",
     "https://firestore.googleapis.com/*",
     "https://*.firebaseio.com/*",
-    "https://canjea.me/*",
     "https://redeem.hype.games/*"
   ],
   "content_scripts": [
     {
-      "matches": ["https://redeem.hype.games/widget/"],
+      "matches": ["https://redeem.hype.games/widget", "https://redeem.hype.games/widget/"],
       "js": ["firestore.service.js", "content.js"],
       "run_at": "document_idle",
       "all_frames": true

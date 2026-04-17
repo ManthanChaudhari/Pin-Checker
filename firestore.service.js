@@ -80,6 +80,26 @@ class PinService {
 
   // ─── REST method (content.js — no SDK) ───────────────────────────────────
 
+  /** Delete pins by filter: "all" | "available" | "unavailable" | "unchecked" */
+  async deletePins(filter = "all") {
+    const snap = await this._db.collection(this._collection).get();
+    const toDelete = snap.docs.filter(d => {
+      const val = d.data().available;
+      if (filter === "available")   return val === true;
+      if (filter === "unavailable") return val === false;
+      if (filter === "unchecked")   return val === null || val === undefined;
+      return true; // "all"
+    });
+
+    const BATCH_SIZE = 500;
+    for (let i = 0; i < toDelete.length; i += BATCH_SIZE) {
+      const batch = this._db.batch();
+      toDelete.slice(i, i + BATCH_SIZE).forEach(d => batch.delete(d.ref));
+      await batch.commit();
+    }
+    return toDelete.length;
+  }
+
   /**
    * Update available field via Firestore REST API.
    * @param {string}  docId
