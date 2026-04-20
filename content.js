@@ -1,101 +1,105 @@
 // content.js — injected ONLY into https://redeem.hype.games/widget/
-
-const STORAGE_KEY = "pinmanager_queue";
-const TOKEN_KEY   = "pinmanager_token";
+// DEBUG: Open browser DevTools console to see [PinManager] and [PinService] logs
 
 if (!location.href.startsWith("https://redeem.hype.games/widget")) {
   throw new Error("[PinManager] Not the widget URL, skipping.");
 }
 
+const STORAGE_KEY  = "pinmanager_state";   // chrome.storage.local key
+const BATCH_SIZE   = 5;
+const LOCK_TIMEOUT = 5 * 60 * 1000;       // 5 min stale lock reclaim
+
 const pinService = new PinService({ projectId: "pin-checker-d183d" });
 let running = false;
 
-// ─── On load ──────────────────────────────────────────────────────────────────
+// ─── On page load — resume if state exists ────────────────────────────────────
 window.addEventListener("load", async () => {
   await sleep(2000);
 
-  const raw = sessionStorage.getItem(STORAGE_KEY);
-  if (!raw) return;
-
-  let state;
-  try { state = JSON.parse(raw); } catch (_) {
-    sessionStorage.removeItem(STORAGE_KEY);
-    return;
-  }
-
-  // Only resume if explicitly marked running AND has pins
-  if (!state.running || !Array.isArray(state.pins) || state.pins.length === 0) {
-    // Clean stale state — do NOT send "done" here, it was already sent
-    sessionStorage.removeItem(STORAGE_KEY);
-    sessionStorage.removeItem(TOKEN_KEY);
-    return;
-  }
+  const stored = await chromeGet(STORAGE_KEY);
+  if (!stored || !stored.running) return;
 
   running = true;
+  console.log("[PinManager] Resuming worker", stored.workerId, "— remaining:", stored.pins?.length);
+
   await waitForElement("#hpws-pin", 10000);
-  await processPins(state.pins);
+  await processQueue(stored.workerId, stored.token, stored.pins || []);
 });
 
-// ─── Message listener ─────────────────────────────────────────────────────────
+// ─── Message listener (from popup) ───────────────────────────────────────────
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.action === "start") {
     if (running) { sendResponse({ ok: false, reason: "already running" }); return; }
-
-    if (msg.token) sessionStorage.setItem(TOKEN_KEY, msg.token);
-    // Write queue AFTER setting running=true so load event won't race
     running = true;
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ running: true, pins: msg.pins }));
 
-    waitForElement("#hpws-pin", 8000).then(() => processPins(msg.pins));
+    // Bootstrap: save initial state then kick off
+    chromeSet(STORAGE_KEY, { running: true, workerId: msg.workerId, token: msg.token, pins: [] })
+      .then(() => waitForElement("#hpws-pin", 8000))
+      .then(() => processQueue(msg.workerId, msg.token, []));
+
     sendResponse({ ok: true });
   }
 
   if (msg.action === "stop") {
     running = false;
-    sessionStorage.removeItem(STORAGE_KEY);
-    sessionStorage.removeItem(TOKEN_KEY);
+    chromeRemove(STORAGE_KEY);
     sendResponse({ ok: true });
   }
 });
 
-// ─── Main loop ────────────────────────────────────────────────────────────────
-async function processPins(pins) {
-  if (!running || !pins || pins.length === 0) {
-    running = false;
-    sessionStorage.removeItem(STORAGE_KEY);
-    sessionStorage.removeItem(TOKEN_KEY);
-    chrome.runtime.sendMessage({ action: "done" }).catch(() => {});
-    return;
+
+async function processQueue(workerId, token, pins) {
+  if (!running) return;
+
+  // Fetch a new batch when current list is exhausted
+  if (pins.length === 0) {
+    try { await pinService.reclaimStalePins(token, LOCK_TIMEOUT); } catch (_) {}
+
+    let batch = null;
+    // Retry up to 3 times in case of transient network errors
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        batch = await pinService.fetchAndLockBatch(workerId, token, BATCH_SIZE);
+        break;
+      } catch (err) {
+        console.warn(`[PinManager] fetchAndLockBatch attempt ${attempt + 1} failed:`, err);
+        if (attempt < 2) await sleep(2000);
+      }
+    }
+
+    if (!batch || batch.length === 0) {
+      console.log("[PinManager] No more pending pins — worker done.");
+      await finishWorker(workerId);
+      return;
+    }
+
+    pins = batch;
+    console.log("[PinManager] Locked batch of", pins.length, "pins");
   }
 
   const { pin, docId } = pins[0];
-  const remaining      = pins.slice(1);
+  const remaining = pins.slice(1);
 
   const success = await tryPin(pin);
 
-  // Update Firestore
-  const token = sessionStorage.getItem(TOKEN_KEY);
   try {
-    await pinService.updatePinAvailability(docId, success, token);
+    await pinService.updatePinDone(docId, success, token);
   } catch (err) {
-    console.error("[PinManager] Firestore update failed:", err);
+    console.error("[PinManager] updatePinDone failed:", err);
   }
 
-  // Notify popup
   chrome.runtime.sendMessage({ action: "pinResult", pin, docId, success }).catch(() => {});
 
-  if (remaining.length > 0) {
-    // Save ONLY remaining, keep running:true, then reload
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ running: true, pins: remaining }));
-    window.location.reload();
-    // Dies here — load event resumes with remaining
-  } else {
-    // Last pin — clear everything THEN send done (no reload)
-    running = false;
-    sessionStorage.removeItem(STORAGE_KEY);
-    sessionStorage.removeItem(TOKEN_KEY);
-    chrome.runtime.sendMessage({ action: "done" }).catch(() => {});
-  }
+  // Always reload — the target site resets its UI after each submission
+  await chromeSet(STORAGE_KEY, { running: true, workerId, token, pins: remaining });
+  window.location.reload();
+}
+
+// ─── Worker finished ──────────────────────────────────────────────────────────
+async function finishWorker(workerId) {
+  running = false;
+  await chromeRemove(STORAGE_KEY);
+  chrome.runtime.sendMessage({ action: "done", workerId }).catch(() => {});
 }
 
 // ─── Pin attempt ──────────────────────────────────────────────────────────────
@@ -150,6 +154,15 @@ async function waitForElement(selector, timeout) {
   return false;
 }
 
-function sleep(ms) {
-  return new Promise(r => setTimeout(r, ms));
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// chrome.storage.local promise wrappers
+function chromeGet(key) {
+  return new Promise(resolve => chrome.storage.local.get(key, r => resolve(r[key] || null)));
+}
+function chromeSet(key, val) {
+  return new Promise(resolve => chrome.storage.local.set({ [key]: val }, resolve));
+}
+function chromeRemove(key) {
+  return new Promise(resolve => chrome.storage.local.remove(key, resolve));
 }

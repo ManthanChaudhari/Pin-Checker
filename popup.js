@@ -195,28 +195,9 @@ startBtn.addEventListener("click", startAutomation);
 stopBtn.addEventListener("click", stopAutomation);
 
 async function startAutomation() {
-  runStatus.textContent = "Fetching unchecked pins...";
+  runStatus.textContent = "Starting worker...";
   startBtn.style.display = "none";
   stopBtn.style.display = "block";
-
-  // Always refresh stats first so local counters are accurate for live updates
-  await loadStats();
-
-  let pins;
-  try {
-    pins = await pinService.getUncheckedPins();
-  } catch (err) {
-    runStatus.innerHTML = `<span class="error">✗ ${err.message}</span>`;
-    resetRunUI(); return;
-  }
-
-  if (!pins.length) {
-    runStatus.textContent = "No unchecked pins to process.";
-    resetRunUI(); return;
-  }
-
-  const total = pins.length;
-  runStatus.textContent = `Starting — ${total} pins to process...`;
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !tab.url || !tab.url.includes("redeem.hype.games")) {
@@ -224,12 +205,18 @@ async function startAutomation() {
     resetRunUI(); return;
   }
 
+  // Generate or reuse a stable workerId per browser instance
+  const stored = await new Promise(r => chrome.storage.local.get("workerId", r));
+  const workerId = stored.workerId || crypto.randomUUID();
+  await new Promise(r => chrome.storage.local.set({ workerId }, r));
+
+  const token = await auth.currentUser.getIdToken();
+
   let processed = 0;
   const listener = (msg) => {
     if (msg.action === "pinResult") {
-      processed = Math.min(processed + 1, total);
-      runStatus.textContent = `Processing... ${processed}/${total} — Pin: ${msg.pin.slice(0, 8)}… ${msg.success ? "✓" : "✗"}`;
-      // Pull real values from Firestore after each pin so dashboard is always accurate
+      processed++;
+      runStatus.textContent = `Processing... ${processed} done — Pin: ${msg.pin.slice(0, 8)}… ${msg.success ? "✓" : "✗"}`;
       loadStats();
     }
     if (msg.action === "done") {
@@ -241,23 +228,23 @@ async function startAutomation() {
   };
   chrome.runtime.onMessage.addListener(listener);
 
-  const token = await auth.currentUser.getIdToken();
-
-  // Find the widget iframe frame — retry up to 10s in case it's still loading
-  runStatus.textContent = `Connecting to widget frame...`;
+  runStatus.textContent = "Connecting to widget frame...";
   const widgetFrame = await findWidgetFrame(tab.id, 10000);
-
   if (!widgetFrame) {
     runStatus.innerHTML = `<span class="error">Widget iframe not found. Make sure https://redeem.hype.games/widget is open and fully loaded.</span>`;
+    chrome.runtime.onMessage.removeListener(listener);
     resetRunUI(); return;
   }
 
-  // Send start message — retry until content script is ready
-  const sent = await sendToFrame(tab.id, widgetFrame.frameId, { action: "start", pins, token }, 8000);
+  // Send start — content script fetches its own batches from Firestore
+  const sent = await sendToFrame(tab.id, widgetFrame.frameId, { action: "start", workerId, token }, 8000);
   if (!sent) {
-    runStatus.innerHTML = `<span class="error">Could not reach content script in widget frame. Try reloading the page.</span>`;
+    runStatus.innerHTML = `<span class="error">Could not reach content script. Try reloading the page.</span>`;
+    chrome.runtime.onMessage.removeListener(listener);
     resetRunUI(); return;
   }
+
+  runStatus.textContent = `Worker ${workerId.slice(0, 8)}… running...`;
 }
 
 async function stopAutomation() {
