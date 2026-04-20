@@ -288,26 +288,22 @@ async function findWidgetFrame(tabId, timeout) {
   return null;
 }
 
-/** Send a message to a specific frame, retrying until delivery succeeds or timeout */
+/** Send a message to a specific frame, retrying until content script confirms or timeout */
 async function sendToFrame(tabId, frameId, msg, timeout) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
-    try {
-      // Use a promise wrapper so we can catch the "no receiving end" error
-      await new Promise((resolve, reject) => {
-        chrome.tabs.sendMessage(tabId, msg, { frameId }, (response) => {
-          if (chrome.runtime.lastError) {
-            reject(chrome.runtime.lastError);
-          } else {
-            resolve(response);
-          }
-        });
+    const result = await new Promise((resolve) => {
+      chrome.tabs.sendMessage(tabId, msg, { frameId }, (response) => {
+        if (chrome.runtime.lastError) {
+          resolve(null); // not ready yet
+        } else {
+          resolve(response);
+        }
       });
-      return true; // delivered successfully
-    } catch (_) {
-      // Content script not ready yet — wait and retry
-      await new Promise(r => setTimeout(r, 600));
-    }
+    });
+    // Content script responds with { ok: true/false } — any response means it's alive
+    if (result !== null && result !== undefined) return true;
+    await new Promise(r => setTimeout(r, 700));
   }
   return false;
 }

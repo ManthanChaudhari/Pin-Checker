@@ -125,7 +125,7 @@ async function tryPin(pin) {
   const beforeHTML = contentEl ? contentEl.innerHTML : document.body.innerHTML;
 
   btn.click();
-  await sleep(5000);
+  await sleep(3000);
 
   const container = contentEl || document.body;
   const h1 = container.querySelector("h1");
