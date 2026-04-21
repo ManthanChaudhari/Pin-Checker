@@ -82,13 +82,17 @@ async function processQueue(workerId, token, pins) {
 
   const success = await tryPin(pin);
 
-  try {
-    await pinService.updatePinDone(docId, success, token);
-  } catch (err) {
-    console.error("[PinManager] updatePinDone failed:", err);
+  // null means the form wasn't submitted properly — skip without updating Firestore
+  if (success !== null) {
+    try {
+      await pinService.updatePinDone(docId, success, token);
+    } catch (err) {
+      console.error("[PinManager] updatePinDone failed:", err);
+    }
+    chrome.runtime.sendMessage({ action: "pinResult", pin, docId, success }).catch(() => {});
+  } else {
+    console.warn("[PinManager] Skipped pin (validate-form still present):", pin);
   }
-
-  chrome.runtime.sendMessage({ action: "pinResult", pin, docId, success }).catch(() => {});
 
   // Always reload — the target site resets its UI after each submission
   await chromeSet(STORAGE_KEY, { running: true, workerId, token, pins: remaining });
@@ -125,17 +129,23 @@ async function tryPin(pin) {
   triggerInputEvents(input);
   await sleep(300);
 
-  const contentEl  = document.querySelector(".hpws-content");
-  const beforeHTML = contentEl ? contentEl.innerHTML : document.body.innerHTML;
+  const contentEl = document.querySelector(".hpws-content");
 
   btn.click();
   await sleep(3000);
 
   const container = contentEl || document.body;
-  const h1 = container.querySelector("h1");
 
-  if (h1 && h1.textContent.includes("Esse PIN já foi utilizado")) return false;
-  if (container.innerHTML !== beforeHTML) return true;
+  // If validate-form is still present, submission didn't go through — skip this pin
+  if (container.querySelector("#validate-form")) return null;
+
+  // Available if h1 exists AND redeem-form is present
+  const h1 = container.querySelector("h1");
+  if (h1 && container.querySelector("#redeem-form")) return true;
+
+  // Only h1 present (no redeem-form) — unavailable
+  if (h1) return false;
+
   return false;
 }
 
