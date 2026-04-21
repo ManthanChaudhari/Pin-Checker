@@ -212,6 +212,21 @@ async function startAutomation() {
 
   const token = await auth.currentUser.getIdToken();
 
+  // Reload the tab first to ensure content script is freshly injected
+  runStatus.textContent = "Reloading page to inject content script...";
+  await chrome.tabs.reload(tab.id);
+
+  // Wait for the widget frame to come back after reload
+  runStatus.textContent = "Waiting for page to load...";
+  const widgetFrame = await findWidgetFrame(tab.id, 15000);
+  if (!widgetFrame) {
+    runStatus.innerHTML = `<span class="error">Widget iframe not found after reload. Make sure https://redeem.hype.games/widget is open.</span>`;
+    resetRunUI(); return;
+  }
+
+  // Extra buffer for content script injection after frame is ready
+  await new Promise(r => setTimeout(r, 1500));
+
   let processed = 0;
   const listener = (msg) => {
     if (msg.action === "pinResult") {
@@ -229,15 +244,15 @@ async function startAutomation() {
   chrome.runtime.onMessage.addListener(listener);
 
   runStatus.textContent = "Connecting to widget frame...";
-  const widgetFrame = await findWidgetFrame(tab.id, 10000);
-  if (!widgetFrame) {
+  const widgetFrame2 = await findWidgetFrame(tab.id, 10000);
+  if (!widgetFrame2) {
     runStatus.innerHTML = `<span class="error">Widget iframe not found. Make sure https://redeem.hype.games/widget is open and fully loaded.</span>`;
     chrome.runtime.onMessage.removeListener(listener);
     resetRunUI(); return;
   }
 
   // Send start — content script fetches its own batches from Firestore
-  const sent = await sendToFrame(tab.id, widgetFrame.frameId, { action: "start", workerId, token }, 8000);
+  const sent = await sendToFrame(tab.id, widgetFrame2.frameId, { action: "start", workerId, token }, 8000);
   if (!sent) {
     runStatus.innerHTML = `<span class="error">Could not reach content script. Try reloading the page.</span>`;
     chrome.runtime.onMessage.removeListener(listener);
