@@ -33,30 +33,36 @@ class PinService {
   }
 
 
-  async uploadPins(pins) {
+  async uploadPins(pins, partitionSize = 500) {
     const BATCH_SIZE = 500;
     let uploaded = 0;
     const inc = firebase.firestore.FieldValue.increment;
+    const totalPartitions = Math.max(1, Math.ceil(pins.length / partitionSize));
+
     for (let i = 0; i < pins.length; i += BATCH_SIZE) {
       const batch = this._db.batch();
       const chunk = pins.slice(i, i + BATCH_SIZE);
-      for (const pin of chunk) {
-        const ref = this._db.collection(this._collection).doc(pin);
+      for (let j = 0; j < chunk.length; j++) {
+        const pin         = chunk[j];
+        const globalIndex = i + j;
+        const partitionId = Math.floor(globalIndex / partitionSize);
+        const ref         = this._db.collection(this._collection).doc(pin);
         batch.set(ref, {
           pin,
-          status:    "pending",
-          available: null,
-          lockedBy:  null,
-          lockedAt:  null,
-          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+          status:      "pending",
+          available:   null,
+          lockedBy:    null,
+          lockedAt:    null,
+          partitionId,
+          createdAt:   firebase.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
       }
-      // increment total + unchecked by chunk size in the same batch
       batch.set(this._statsRef, { total: inc(chunk.length), unchecked: inc(chunk.length) }, { merge: true });
       await batch.commit();
       uploaded += chunk.length;
     }
-    return uploaded;
+
+    return { uploaded, totalPartitions };
   }
 
   async downloadPins(filter = "all") {
@@ -114,103 +120,83 @@ class PinService {
     return toDelete.length;
   }
 
-  async fetchAndLockBatch(workerId, token, batchSize = 5) {
+  async fetchAndLockBatch(workerId, token, batchSize = 5, partitionId = null) {
     const queryUrl = `https://firestore.googleapis.com/v1/projects/${this._projectId}/databases/(default)/documents:runQuery`;
     const headers  = { "Content-Type": "application/json", ...this._authHeader(token) };
-    const fetchLimit = batchSize * 6; // over-fetch more to survive races
 
-    // Query 1: docs with status == "pending"
-    const [res1, res2] = await Promise.all([
-      fetch(queryUrl, {
-        method: "POST", headers,
-        body: JSON.stringify({
-          structuredQuery: {
-            from: [{ collectionId: this._collection }],
-            where: { fieldFilter: { field: { fieldPath: "status" }, op: "EQUAL", value: { stringValue: "pending" } } },
-            limit: fetchLimit
+    // Build filter — partition-aware if partitionId provided
+    const statusFilter = { fieldFilter: { field: { fieldPath: "status" }, op: "EQUAL", value: { stringValue: "pending" } } };
+    const whereClause  = partitionId !== null
+      ? {
+          compositeFilter: {
+            op: "AND",
+            filters: [
+              statusFilter,
+              { fieldFilter: { field: { fieldPath: "partitionId" }, op: "EQUAL", value: { integerValue: String(partitionId) } } }
+            ]
           }
-        })
-      }),
-      // Query 2: legacy docs — available is null AND no lockedBy (not yet migrated)
-      fetch(queryUrl, {
-        method: "POST", headers,
-        body: JSON.stringify({
-          structuredQuery: {
-            from: [{ collectionId: this._collection }],
-            where: {
-              compositeFilter: {
-                op: "AND",
-                filters: [
-                  { fieldFilter: { field: { fieldPath: "available" }, op: "EQUAL", value: { nullValue: null } } }
-                ]
-              }
-            },
-            limit: fetchLimit
-          }
-        })
+        }
+      : statusFilter;
+
+    // Fetch exactly batchSize + small buffer — no over-fetch needed with updateTime lock
+    const res = await fetch(queryUrl, {
+      method: "POST", headers,
+      body: JSON.stringify({
+        structuredQuery: {
+          from:  [{ collectionId: this._collection }],
+          where: whereClause,
+          limit: batchSize + 3
+        }
       })
-    ]);
-
-    const parseResults = async (res) => {
-      if (!res.ok) {
-        console.warn("[PinService] Query failed:", res.status, await res.text().catch(() => ""));
-        return [];
-      }
-      const results = await res.json();
-      return results
-        .filter(r => r.document)
-        .map(r => {
-          const fields   = r.document.fields || {};
-          const parts    = r.document.name.split("/");
-          const docId    = parts[parts.length - 1];
-          const status   = fields.status?.stringValue;
-          const lockedBy = fields.lockedBy?.stringValue;
-          // Skip already locked or done
-          if (lockedBy || status === "done" || status === "processing") return null;
-          return { docId, pin: fields.pin?.stringValue || docId };
-        })
-        .filter(Boolean);
-    };
-
-    const [list1, list2] = await Promise.all([parseResults(res1), parseResults(res2)]);
-
-    // Merge and deduplicate by docId
-    const seen = new Set();
-    const candidates = [...list1, ...list2].filter(d => {
-      if (seen.has(d.docId)) return false;
-      seen.add(d.docId);
-      return true;
     });
 
-    console.log(`[PinService] Found ${candidates.length} candidates, attempting to lock ${batchSize}...`);
-
-    // Atomically lock each doc — try up to 2x batchSize to handle races
-    const locked = [];
-    const maxAttempts = Math.min(candidates.length, batchSize * 2);
-    
-    for (let i = 0; i < maxAttempts && locked.length < batchSize; i++) {
-      const doc = candidates[i];
-      const ok = await this._lockPin(doc.docId, workerId, token);
-      if (ok) {
-        locked.push(doc);
-        console.log(`[PinService] Locked ${doc.docId.slice(0, 8)}...`);
-      }
+    if (!res.ok) {
+      console.warn("[PinService] Query failed:", res.status, await res.text().catch(() => ""));
+      return [];
     }
 
-    console.log(`[PinService] Successfully locked ${locked.length} pins`);
+    const results = await res.json();
+    const candidates = results
+      .filter(r => r.document)
+      .map(r => {
+        const fields     = r.document.fields || {};
+        const parts      = r.document.name.split("/");
+        const docId      = parts[parts.length - 1];
+        const updateTime = r.document.updateTime;
+        const status     = fields.status?.stringValue;
+        const lockedBy   = fields.lockedBy?.stringValue;
+        if (lockedBy || status === "done" || status === "processing") return null;
+        return { docId, updateTime, pin: fields.pin?.stringValue || docId };
+      })
+      .filter(Boolean);
+
+    console.log(`[PinService] Partition ${partitionId} — ${candidates.length} candidates, locking ${batchSize}...`);
+
+    // Lock all candidates in parallel using updateTime precondition — no GET needed
+    const lockResults = await Promise.all(
+      candidates.map(doc => this._lockPin(doc.docId, doc.updateTime, workerId, token))
+    );
+
+    const locked = candidates.filter((_, i) => lockResults[i]).slice(0, batchSize);
+    console.log(`[PinService] Locked ${locked.length} pins`);
     return locked;
   }
 
   /**
-   * Optimistic lock: PATCH the doc with our workerId, then verify we won.
-   * Returns true if we successfully locked it, false if another worker beat us.
+   * Conditional PATCH using updateTime precondition.
+   * Firestore rejects with 400 if doc was modified since fetch — only one worker wins.
+   * No GET needed — single HTTP call per pin.
    */
-  async _lockPin(docId, workerId, token) {
-    const url = `${this._baseUrl}/${encodeURIComponent(docId)}` +
-      `?updateMask.fieldPaths=status&updateMask.fieldPaths=lockedBy&updateMask.fieldPaths=lockedAt`;
+  async _lockPin(docId, updateTime, workerId, token) {
+    if (!updateTime) return false;
 
-    // Step 1: PATCH to claim the lock
-    const patchRes = await fetch(url, {
+    const url = `${this._baseUrl}/${encodeURIComponent(docId)}` +
+      `?currentDocument.updateTime=${encodeURIComponent(updateTime)}` +
+      `&updateMask.fieldPaths=status` +
+      `&updateMask.fieldPaths=lockedBy` +
+      `&updateMask.fieldPaths=lockedAt`;
+
+    const res = await fetch(url, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...this._authHeader(token) },
       body: JSON.stringify({
@@ -222,23 +208,8 @@ class PinService {
       })
     });
 
-    if (!patchRes.ok) {
-      console.warn("[PinService] PATCH lock failed:", patchRes.status);
-      return false;
-    }
-
-    // Step 2: immediately re-read to verify we won the race
-    const getRes = await fetch(`${this._baseUrl}/${encodeURIComponent(docId)}`, {
-      headers: this._authHeader(token)
-    });
-
-    if (!getRes.ok) return false;
-
-    const doc = await getRes.json();
-    const actualLockedBy = doc.fields?.lockedBy?.stringValue;
-
-    // If lockedBy matches our workerId, we won. Otherwise another worker overwrote us.
-    return actualLockedBy === workerId;
+    // 200 = won, 400/409 = another worker got it first
+    return res.ok;
   }
 
   async updatePinDone(docId, available, token) {

@@ -117,19 +117,35 @@ function extractFromText(text, filename) {
   if (parsedPins.length > 0) {
     previewCount.textContent = `✓ Found ${parsedPins.length} unique pin(s) in "${filename}"`;
     uploadBtn.disabled = false;
+    updatePartitionPreview();
   } else {
     previewCount.textContent = "No valid pins (UUIDs) found in this file.";
     uploadBtn.disabled = true;
   }
 }
 
+function updatePartitionPreview() {
+  const sizeInput = document.getElementById("partition-size");
+  const preview   = document.getElementById("partition-preview");
+  if (!sizeInput || !preview || !parsedPins.length) return;
+  const size       = Math.max(1, parseInt(sizeInput.value) || 500);
+  const partitions = Math.ceil(parsedPins.length / size);
+  preview.textContent = `→ ${partitions} partition(s) of ~${size} pins each — run ${partitions} browser(s)`;
+}
+
+document.getElementById("partition-size")?.addEventListener("input", updatePartitionPreview);
+
 uploadBtn.addEventListener("click", async () => {
   if (!parsedPins.length) return;
   uploadBtn.disabled = true;
   uploadStatus.innerHTML = '<span class="spinner"></span> Uploading...';
   try {
-    const uploaded = await pinService.uploadPins(parsedPins);
-    uploadStatus.innerHTML = `<span class="success">✓ ${uploaded} pins uploaded successfully.</span>`;
+    const partitionSize = Math.max(1, parseInt(document.getElementById("partition-size")?.value) || 500);
+    const { uploaded, totalPartitions } = await pinService.uploadPins(parsedPins, partitionSize);
+    uploadStatus.innerHTML = `<span class="success">✓ ${uploaded} pins uploaded across ${totalPartitions} partition(s).</span>`;
+    // Store partition info for the dashboard selector
+    await new Promise(r => chrome.storage.local.set({ totalPartitions }, r));
+    updatePartitionSelector(totalPartitions);
     parsedPins = [];
     previewCount.textContent = "";
     fileInput.value = "";
@@ -195,6 +211,34 @@ function setStatEls(total, available, unavailable, unchecked) {
 
 document.getElementById("refresh-btn").addEventListener("click", loadStats);
 
+// Load saved partition count on popup open and restore running state
+(async () => {
+  const stored = await new Promise(r => chrome.storage.local.get(["totalPartitions", "pinmanager_state"], r));
+  if (stored.totalPartitions) updatePartitionSelector(stored.totalPartitions);
+
+  // If a worker is actively running, restore the stop button
+  const state = stored["pinmanager_state"];
+  if (state && state.running) {
+    startBtn.style.display = "none";
+    stopBtn.style.display  = "block";
+    runStatus.textContent  = "Worker running...";
+  }
+})();
+
+function updatePartitionSelector(totalPartitions) {
+  const select = document.getElementById("partition-select");
+  const info   = document.getElementById("partition-info");
+  if (!select || !info) return;
+  select.innerHTML = "";
+  for (let i = 0; i < totalPartitions; i++) {
+    const opt = document.createElement("option");
+    opt.value = i;
+    opt.textContent = `Partition ${i} (~${Math.ceil(500)} pins)`;
+    select.appendChild(opt);
+  }
+  info.textContent = `${totalPartitions} partition(s) — run ${totalPartitions} browser(s) in parallel, one per partition.`;
+}
+
 // ─── Automation ───────────────────────────────────────────────────────────────
 const startBtn  = document.getElementById("start-btn");
 const stopBtn   = document.getElementById("stop-btn");
@@ -214,18 +258,20 @@ async function startAutomation() {
     resetRunUI(); return;
   }
 
-  // Generate or reuse a stable workerId per browser instance
-  const stored = await new Promise(r => chrome.storage.local.get("workerId", r));
-  const workerId = stored.workerId || crypto.randomUUID();
+  const stored = await new Promise(r => chrome.storage.local.get(["workerId", "totalPartitions"], r));
+  const workerId       = stored.workerId || crypto.randomUUID();
+  const totalPartitions = stored.totalPartitions || 1;
   await new Promise(r => chrome.storage.local.set({ workerId }, r));
+
+  // Read selected partition from UI
+  const partitionSelect = document.getElementById("partition-select");
+  const partitionId     = partitionSelect ? parseInt(partitionSelect.value) : null;
 
   const token = await auth.currentUser.getIdToken();
 
-  // Reload the tab first to ensure content script is freshly injected
   runStatus.textContent = "Reloading page to inject content script...";
   await chrome.tabs.reload(tab.id);
 
-  // Wait for the widget frame to come back after reload
   runStatus.textContent = "Waiting for page to load...";
   const widgetFrame = await findWidgetFrame(tab.id, 15000);
   if (!widgetFrame) {
@@ -233,7 +279,6 @@ async function startAutomation() {
     resetRunUI(); return;
   }
 
-  // Extra buffer for content script injection after frame is ready
   await new Promise(r => setTimeout(r, 1500));
 
   let processed = 0;
@@ -241,13 +286,12 @@ async function startAutomation() {
     if (msg.action === "pinResult") {
       processed++;
       runStatus.textContent = `Processing... ${processed} done — Pin: ${msg.pin.slice(0, 8)}… ${msg.success ? "✓" : "✗"}`;
-      // no loadStats() here — stats doc is updated by content script incrementally
     }
     if (msg.action === "done") {
       chrome.runtime.onMessage.removeListener(listener);
       runStatus.innerHTML = `<span class="success">✓ Done — ${processed} pins processed.</span>`;
       stopAutomation();
-      loadStats(); // single read at the end
+      loadStats();
     }
   };
   chrome.runtime.onMessage.addListener(listener);
@@ -260,15 +304,15 @@ async function startAutomation() {
     resetRunUI(); return;
   }
 
-  // Send start — content script fetches its own batches from Firestore
-  const sent = await sendToFrame(tab.id, widgetFrame2.frameId, { action: "start", workerId, token }, 8000);
+  const sent = await sendToFrame(tab.id, widgetFrame2.frameId, { action: "start", workerId, token, partitionId }, 8000);
   if (!sent) {
     runStatus.innerHTML = `<span class="error">Could not reach content script. Try reloading the page.</span>`;
     chrome.runtime.onMessage.removeListener(listener);
     resetRunUI(); return;
   }
 
-  runStatus.textContent = `Worker ${workerId.slice(0, 8)}… running...`;
+  const partLabel = partitionId !== null ? ` (Partition ${partitionId})` : "";
+  runStatus.textContent = `Worker ${workerId.slice(0, 8)}…${partLabel} running...`;
 }
 
 async function stopAutomation() {

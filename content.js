@@ -28,7 +28,7 @@ window.addEventListener("load", async () => {
   console.log("[PinManager] Resuming worker", stored.workerId, "— remaining:", stored.pins?.length);
 
   await waitForElement("#hpws-pin", 10000);
-  await processQueue(stored.workerId, stored.token, stored.pins || []);
+  await processQueue(stored.workerId, stored.token, stored.partitionId ?? null, stored.pins || []);
 });
 
 // ─── Message listener (from popup) ───────────────────────────────────────────
@@ -37,10 +37,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (running) { sendResponse({ ok: false, reason: "already running" }); return; }
     running = true;
 
-    // Bootstrap: save initial state then kick off
-    chromeSet(STORAGE_KEY, { running: true, workerId: msg.workerId, token: msg.token, pins: [] })
+    chromeSet(STORAGE_KEY, { running: true, workerId: msg.workerId, token: msg.token, partitionId: msg.partitionId, pins: [] })
       .then(() => waitForElement("#hpws-pin", 8000))
-      .then(() => processQueue(msg.workerId, msg.token, []));
+      .then(() => processQueue(msg.workerId, msg.token, msg.partitionId, []));
 
     sendResponse({ ok: true });
   }
@@ -53,18 +52,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 });
 
 
-async function processQueue(workerId, token, pins) {
+async function processQueue(workerId, token, partitionId, pins) {
   if (!running) return;
 
-  // Fetch a new batch when current list is exhausted
   if (pins.length === 0) {
     try { await pinService.reclaimStalePins(token, LOCK_TIMEOUT, workerId); } catch (_) {}
 
     let batch = null;
-    // Retry up to 3 times in case of transient network errors
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        batch = await pinService.fetchAndLockBatch(workerId, token, BATCH_SIZE);
+        batch = await pinService.fetchAndLockBatch(workerId, token, BATCH_SIZE, partitionId);
         break;
       } catch (err) {
         console.warn(`[PinManager] fetchAndLockBatch attempt ${attempt + 1} failed:`, err);
@@ -87,7 +84,6 @@ async function processQueue(workerId, token, pins) {
 
   const success = await tryPin(pin);
 
-  // null means the form wasn't submitted properly — skip without updating Firestore
   if (success !== null) {
     try {
       await pinService.updatePinDone(docId, success, token);
@@ -99,8 +95,7 @@ async function processQueue(workerId, token, pins) {
     console.warn("[PinManager] Skipped pin (validate-form still present):", pin);
   }
 
-  // Always reload — the target site resets its UI after each submission
-  await chromeSet(STORAGE_KEY, { running: true, workerId, token, pins: remaining });
+  await chromeSet(STORAGE_KEY, { running: true, workerId, token, partitionId, pins: remaining });
   window.location.reload();
 }
 
