@@ -9,7 +9,8 @@ const STORAGE_KEY  = "pinmanager_state";   // chrome.storage.local key
 const BATCH_SIZE   = 5;
 const LOCK_TIMEOUT = 5 * 60 * 1000;       // 5 min stale lock reclaim
 
-const pinService = new PinService({ projectId: "pin-checker-d183d" });
+const pinService = new PinService({ projectId: "pv-extract" });
+// const pinService = new PinService({ projectId: "pin-checker-d183" });
 let running = false;
 
 // ─── On page load — resume if state exists ────────────────────────────────────
@@ -18,6 +19,10 @@ window.addEventListener("load", async () => {
 
   const stored = await chromeGet(STORAGE_KEY);
   if (!stored || !stored.running) return;
+
+  // If this load was triggered by the start message (pins is empty array set by message listener),
+  // the message listener already called processQueue — don't double-run
+  if (running) return;
 
   running = true;
   console.log("[PinManager] Resuming worker", stored.workerId, "— remaining:", stored.pins?.length);
@@ -53,7 +58,7 @@ async function processQueue(workerId, token, pins) {
 
   // Fetch a new batch when current list is exhausted
   if (pins.length === 0) {
-    try { await pinService.reclaimStalePins(token, LOCK_TIMEOUT); } catch (_) {}
+    try { await pinService.reclaimStalePins(token, LOCK_TIMEOUT, workerId); } catch (_) {}
 
     let batch = null;
     // Retry up to 3 times in case of transient network errors

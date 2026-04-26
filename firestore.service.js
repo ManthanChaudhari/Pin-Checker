@@ -16,26 +16,27 @@ class PinService {
   }
 
 
+  get _statsRef() {
+    return this._db.collection("stats").doc("global");
+  }
+
   async getStats() {
-    const snap = await this._db.collection(this._collection).get();
-    let total = 0, available = 0, unavailable = 0, unchecked = 0;
-    snap.docs.forEach(d => {
-      total++;
-      const data   = d.data();
-      const val    = data.available;
-      const status = data.status;
-      if (val === true)        available++;
-      else if (val === false)  unavailable++;
-      else if (status === "processing") unchecked++; // locked but not done — still counts as pending
-      else                     unchecked++; // pending or legacy
-    });
-    return { total, available, unavailable, unchecked };
+    const snap = await this._statsRef.get();
+    if (!snap.exists) return { total: 0, available: 0, unavailable: 0, unchecked: 0 };
+    const d = snap.data();
+    return {
+      total:       d.total       || 0,
+      available:   d.available   || 0,
+      unavailable: d.unavailable || 0,
+      unchecked:   d.unchecked   || 0
+    };
   }
 
 
   async uploadPins(pins) {
     const BATCH_SIZE = 500;
     let uploaded = 0;
+    const inc = firebase.firestore.FieldValue.increment;
     for (let i = 0; i < pins.length; i += BATCH_SIZE) {
       const batch = this._db.batch();
       const chunk = pins.slice(i, i + BATCH_SIZE);
@@ -50,6 +51,8 @@ class PinService {
           createdAt: firebase.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
       }
+      // increment total + unchecked by chunk size in the same batch
+      batch.set(this._statsRef, { total: inc(chunk.length), unchecked: inc(chunk.length) }, { merge: true });
       await batch.commit();
       uploaded += chunk.length;
     }
@@ -82,12 +85,32 @@ class PinService {
       if (filter === "unchecked")   return val === null || val === undefined;
       return true;
     });
+
+    let dAvailable = 0, dUnavailable = 0, dUnchecked = 0;
+    toDelete.forEach(d => {
+      const val = d.data().available;
+      if (val === true)       dAvailable++;
+      else if (val === false) dUnavailable++;
+      else                    dUnchecked++;
+    });
+
     const BATCH_SIZE = 500;
     for (let i = 0; i < toDelete.length; i += BATCH_SIZE) {
       const batch = this._db.batch();
       toDelete.slice(i, i + BATCH_SIZE).forEach(d => batch.delete(d.ref));
       await batch.commit();
     }
+
+    if (toDelete.length > 0) {
+      const inc = firebase.firestore.FieldValue.increment;
+      await this._statsRef.set({
+        total:       inc(-toDelete.length),
+        available:   inc(-dAvailable),
+        unavailable: inc(-dUnavailable),
+        unchecked:   inc(-dUnchecked)
+      }, { merge: true });
+    }
+
     return toDelete.length;
   }
 
@@ -236,6 +259,28 @@ class PinService {
     });
 
     if (!res.ok) throw new Error(`Firestore REST error ${res.status}: ${await res.text()}`);
+
+    // increment available or unavailable by 1, decrement unchecked by 1
+    const statsField = available ? "available" : "unavailable";
+    await fetch(
+      `https://firestore.googleapis.com/v1/projects/${this._projectId}/databases/(default)/documents:commit`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...this._authHeader(token) },
+        body: JSON.stringify({
+          writes: [{
+            transform: {
+              document: `projects/${this._projectId}/databases/(default)/documents/stats/global`,
+              fieldTransforms: [
+                { fieldPath: "unchecked",  increment: { integerValue: "-1" } },
+                { fieldPath: statsField,   increment: { integerValue: "1"  } }
+              ]
+            }
+          }]
+        })
+      }
+    ).catch(e => console.warn("[PinService] stats update failed:", e));
+
     return true;
   }
 

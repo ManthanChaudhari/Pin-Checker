@@ -1,19 +1,28 @@
 // ─── Firebase init ────────────────────────────────────────────────────────────
 const firebaseConfig = {
-  apiKey: "AIzaSyDxClYC9e2YmrbLITLmcj3daGD1pbj-8JA",
-  authDomain: "pin-checker-d183d.firebaseapp.com",
-  projectId: "pin-checker-d183d",
-  storageBucket: "pin-checker-d183d.firebasestorage.app",
-  messagingSenderId: "656085087991",
-  appId: "1:656085087991:web:b2b5fa79f0b022e36985f2"
+  apiKey: "AIzaSyA5FcPE7xE0DLPlyIQ2Snk667Gqz1UlH4I",
+  authDomain: "pv-extract.firebaseapp.com",
+  projectId: "pv-extract",
+  storageBucket: "pv-extract.firebasestorage.app",
+  messagingSenderId: "17827015798",
+  appId: "1:17827015798:web:790c74368a2605d7848357"
 };
+// const firebaseConfig = {
+//   apiKey: "AIzaSyDxClYC9e2YmrbLITLmcj3daGD1pbj-8JA",
+//   authDomain: "pin-checker-d183d.firebaseapp.com",
+//   projectId: "pin-checker-d183d",
+//   storageBucket: "pin-checker-d183d.firebasestorage.app",
+//   messagingSenderId: "656085087991",
+//   appId: "1:656085087991:web:b2b5fa79f0b022e36985f2"
+// };
 
 if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
 const db   = firebase.firestore();
 const auth = firebase.auth();
 
 // ─── Service ──────────────────────────────────────────────────────────────────
-const pinService = new PinService({ db, projectId: "pin-checker-d183d" });
+const pinService = new PinService({ db, projectId: "pv-extract" });
+// const pinService = new PinService({ db, projectId: "pin-checker-d183d" });
 
 const UUID_REGEX = /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/g;
 
@@ -232,13 +241,13 @@ async function startAutomation() {
     if (msg.action === "pinResult") {
       processed++;
       runStatus.textContent = `Processing... ${processed} done — Pin: ${msg.pin.slice(0, 8)}… ${msg.success ? "✓" : "✗"}`;
-      loadStats();
+      // no loadStats() here — stats doc is updated by content script incrementally
     }
     if (msg.action === "done") {
       chrome.runtime.onMessage.removeListener(listener);
       runStatus.innerHTML = `<span class="success">✓ Done — ${processed} pins processed.</span>`;
       stopAutomation();
-      loadStats();
+      loadStats(); // single read at the end
     }
   };
   chrome.runtime.onMessage.addListener(listener);
