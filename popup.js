@@ -191,10 +191,11 @@ async function loadStats() {
   dashStatus.innerHTML = '<span class="spinner"></span> Loading...';
   setStatEls("—", "—", "—", "—");
   try {
-    const { total, available, unavailable, unchecked } = await pinService.getStats();
+    const { total, available, unavailable, unchecked, totalPartitions } = await pinService.getStats();
     _localTotal = total; _localAvailable = available;
     _localUnavailable = unavailable; _localUnchecked = unchecked;
     setStatEls(total, available, unavailable, unchecked);
+    if (totalPartitions) updatePartitionSelector(totalPartitions);
     dashStatus.textContent = "";
   } catch (err) {
     dashStatus.innerHTML = `<span class="error">✗ ${err.message}</span>`;
@@ -211,18 +212,20 @@ function setStatEls(total, available, unavailable, unchecked) {
 
 document.getElementById("refresh-btn").addEventListener("click", loadStats);
 
-// Load saved partition count on popup open and restore running state
+// Load partition info from Firestore on popup open (works across all browsers)
 (async () => {
-  const stored = await new Promise(r => chrome.storage.local.get(["totalPartitions", "pinmanager_state"], r));
-  if (stored.totalPartitions) updatePartitionSelector(stored.totalPartitions);
-
-  // If a worker is actively running, restore the stop button
-  const state = stored["pinmanager_state"];
+  const stored = await new Promise(r => chrome.storage.local.get("pinmanager_state", r));
+  const state  = stored["pinmanager_state"];
   if (state && state.running) {
     startBtn.style.display = "none";
     stopBtn.style.display  = "block";
     runStatus.textContent  = "Worker running...";
   }
+  // Load partitions from Firestore so all browsers see the same value
+  try {
+    const { totalPartitions } = await pinService.getStats();
+    if (totalPartitions) updatePartitionSelector(totalPartitions);
+  } catch (_) {}
 })();
 
 function updatePartitionSelector(totalPartitions) {

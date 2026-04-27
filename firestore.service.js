@@ -22,13 +22,14 @@ class PinService {
 
   async getStats() {
     const snap = await this._statsRef.get();
-    if (!snap.exists) return { total: 0, available: 0, unavailable: 0, unchecked: 0 };
+    if (!snap.exists) return { total: 0, available: 0, unavailable: 0, unchecked: 0, totalPartitions: 1 };
     const d = snap.data();
     return {
-      total:       d.total       || 0,
-      available:   d.available   || 0,
-      unavailable: d.unavailable || 0,
-      unchecked:   d.unchecked   || 0
+      total:           d.total           || 0,
+      available:       d.available       || 0,
+      unavailable:     d.unavailable     || 0,
+      unchecked:       d.unchecked       || 0,
+      totalPartitions: d.totalPartitions || 1
     };
   }
 
@@ -62,10 +63,11 @@ class PinService {
       uploaded += chunk.length;
     }
 
-    return { uploaded, totalPartitions };
-  }
+    // Store totalPartitions in Firestore so all browsers can read it
+    await this._statsRef.set({ totalPartitions }, { merge: true });
 
-  async downloadPins(filter = "all") {
+    return { uploaded, totalPartitions };
+  }  async downloadPins(filter = "all") {
     const snap = await this._db.collection(this._collection).get();
     return snap.docs
       .filter(d => {
