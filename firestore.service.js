@@ -122,96 +122,50 @@ class PinService {
     return toDelete.length;
   }
 
-  async fetchAndLockBatch(workerId, token, batchSize = 5, partitionId = null) {
+  async fetchPartitionPins(token, partitionId) {
     const queryUrl = `https://firestore.googleapis.com/v1/projects/${this._projectId}/databases/(default)/documents:runQuery`;
     const headers  = { "Content-Type": "application/json", ...this._authHeader(token) };
 
-    // Build filter — partition-aware if partitionId provided
-    const statusFilter = { fieldFilter: { field: { fieldPath: "status" }, op: "EQUAL", value: { stringValue: "pending" } } };
-    const whereClause  = partitionId !== null
+    const whereClause = partitionId !== null
       ? {
           compositeFilter: {
             op: "AND",
             filters: [
-              statusFilter,
+              { fieldFilter: { field: { fieldPath: "status" },      op: "EQUAL", value: { stringValue: "pending" } } },
               { fieldFilter: { field: { fieldPath: "partitionId" }, op: "EQUAL", value: { integerValue: String(partitionId) } } }
             ]
           }
         }
-      : statusFilter;
+      : { fieldFilter: { field: { fieldPath: "status" }, op: "EQUAL", value: { stringValue: "pending" } } };
 
-    // Fetch exactly batchSize + small buffer — no over-fetch needed with updateTime lock
     const res = await fetch(queryUrl, {
       method: "POST", headers,
       body: JSON.stringify({
         structuredQuery: {
           from:  [{ collectionId: this._collection }],
-          where: whereClause,
-          limit: batchSize + 3
+          where: whereClause
+          // no limit — fetch all pending pins for this partition
         }
       })
     });
 
     if (!res.ok) {
-      console.warn("[PinService] Query failed:", res.status, await res.text().catch(() => ""));
+      console.warn("[PinService] fetchPartitionPins failed:", res.status, await res.text().catch(() => ""));
       return [];
     }
 
     const results = await res.json();
-    const candidates = results
+    return results
       .filter(r => r.document)
       .map(r => {
-        const fields     = r.document.fields || {};
-        const parts      = r.document.name.split("/");
-        const docId      = parts[parts.length - 1];
-        const updateTime = r.document.updateTime;
-        const status     = fields.status?.stringValue;
-        const lockedBy   = fields.lockedBy?.stringValue;
-        if (lockedBy || status === "done" || status === "processing") return null;
-        return { docId, updateTime, pin: fields.pin?.stringValue || docId };
+        const fields = r.document.fields || {};
+        const parts  = r.document.name.split("/");
+        const docId  = parts[parts.length - 1];
+        const status = fields.status?.stringValue;
+        if (status === "done" || status === "processing") return null;
+        return { docId, pin: fields.pin?.stringValue || docId };
       })
       .filter(Boolean);
-
-    console.log(`[PinService] Partition ${partitionId} — ${candidates.length} candidates, locking ${batchSize}...`);
-
-    // Lock all candidates in parallel using updateTime precondition — no GET needed
-    const lockResults = await Promise.all(
-      candidates.map(doc => this._lockPin(doc.docId, doc.updateTime, workerId, token))
-    );
-
-    const locked = candidates.filter((_, i) => lockResults[i]).slice(0, batchSize);
-    console.log(`[PinService] Locked ${locked.length} pins`);
-    return locked;
-  }
-
-  /**
-   * Conditional PATCH using updateTime precondition.
-   * Firestore rejects with 400 if doc was modified since fetch — only one worker wins.
-   * No GET needed — single HTTP call per pin.
-   */
-  async _lockPin(docId, updateTime, workerId, token) {
-    if (!updateTime) return false;
-
-    const url = `${this._baseUrl}/${encodeURIComponent(docId)}` +
-      `?currentDocument.updateTime=${encodeURIComponent(updateTime)}` +
-      `&updateMask.fieldPaths=status` +
-      `&updateMask.fieldPaths=lockedBy` +
-      `&updateMask.fieldPaths=lockedAt`;
-
-    const res = await fetch(url, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", ...this._authHeader(token) },
-      body: JSON.stringify({
-        fields: {
-          status:   { stringValue: "processing" },
-          lockedBy: { stringValue: workerId },
-          lockedAt: { integerValue: String(Date.now()) }
-        }
-      })
-    });
-
-    // 200 = won, 400/409 = another worker got it first
-    return res.ok;
   }
 
   async updatePinDone(docId, available, token) {

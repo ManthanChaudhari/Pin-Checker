@@ -1,28 +1,28 @@
 // ─── Firebase init ────────────────────────────────────────────────────────────
-const firebaseConfig = {
-  apiKey: "AIzaSyA5FcPE7xE0DLPlyIQ2Snk667Gqz1UlH4I",
-  authDomain: "pv-extract.firebaseapp.com",
-  projectId: "pv-extract",
-  storageBucket: "pv-extract.firebasestorage.app",
-  messagingSenderId: "17827015798",
-  appId: "1:17827015798:web:790c74368a2605d7848357"
-};
 // const firebaseConfig = {
-//   apiKey: "AIzaSyDxClYC9e2YmrbLITLmcj3daGD1pbj-8JA",
-//   authDomain: "pin-checker-d183d.firebaseapp.com",
-//   projectId: "pin-checker-d183d",
-//   storageBucket: "pin-checker-d183d.firebasestorage.app",
-//   messagingSenderId: "656085087991",
-//   appId: "1:656085087991:web:b2b5fa79f0b022e36985f2"
+//   apiKey: "AIzaSyA5FcPE7xE0DLPlyIQ2Snk667Gqz1UlH4I",
+//   authDomain: "pv-extract.firebaseapp.com",
+//   projectId: "pv-extract",
+//   storageBucket: "pv-extract.firebasestorage.app",
+//   messagingSenderId: "17827015798",
+//   appId: "1:17827015798:web:790c74368a2605d7848357"
 // };
+const firebaseConfig = {
+  apiKey: "AIzaSyDxClYC9e2YmrbLITLmcj3daGD1pbj-8JA",
+  authDomain: "pin-checker-d183d.firebaseapp.com",
+  projectId: "pin-checker-d183d",
+  storageBucket: "pin-checker-d183d.firebasestorage.app",
+  messagingSenderId: "656085087991",
+  appId: "1:656085087991:web:b2b5fa79f0b022e36985f2"
+};
 
 if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
 const db   = firebase.firestore();
 const auth = firebase.auth();
 
 // ─── Service ──────────────────────────────────────────────────────────────────
-const pinService = new PinService({ db, projectId: "pv-extract" });
-// const pinService = new PinService({ db, projectId: "pin-checker-d183d" });
+// const pinService = new PinService({ db, projectId: "pv-extract" });
+const pinService = new PinService({ db, projectId: "pin-checker-d183d" });
 
 const UUID_REGEX = /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/g;
 
@@ -212,6 +212,24 @@ function setStatEls(total, available, unavailable, unchecked) {
 
 document.getElementById("refresh-btn").addEventListener("click", loadStats);
 
+// Auto-refresh stats every 30 seconds — only while process is running
+let statsInterval = null;
+
+function startStatsInterval() {
+  if (!statsInterval) statsInterval = setInterval(loadStats, 60000);
+}
+
+function stopStatsInterval() {
+  clearInterval(statsInterval);
+  statsInterval = null;
+}
+
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    if (btn.dataset.tab !== "dashboard") stopStatsInterval();
+  });
+});
+
 // Load partition info from Firestore on popup open (works across all browsers)
 (async () => {
   const stored = await new Promise(r => chrome.storage.local.get("pinmanager_state", r));
@@ -236,7 +254,7 @@ function updatePartitionSelector(totalPartitions) {
   for (let i = 0; i < totalPartitions; i++) {
     const opt = document.createElement("option");
     opt.value = i;
-    opt.textContent = `Partition ${i} (~${Math.ceil(500)} pins)`;
+    opt.textContent = `Partition ${i + 1}`;
     select.appendChild(opt);
   }
   info.textContent = `${totalPartitions} partition(s) — run ${totalPartitions} browser(s) in parallel, one per partition.`;
@@ -316,6 +334,7 @@ async function startAutomation() {
 
   const partLabel = partitionId !== null ? ` (Partition ${partitionId})` : "";
   runStatus.textContent = `Worker ${workerId.slice(0, 8)}…${partLabel} running...`;
+  startStatsInterval();
 }
 
 async function stopAutomation() {
@@ -327,6 +346,7 @@ async function stopAutomation() {
     }
   }
   runStatus.textContent = "Stopped.";
+  stopStatsInterval();
   resetRunUI();
 }
 

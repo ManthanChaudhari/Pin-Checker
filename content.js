@@ -5,12 +5,10 @@ if (!location.href.startsWith("https://redeem.hype.games/widget")) {
   throw new Error("[PinManager] Not the widget URL, skipping.");
 }
 
-const STORAGE_KEY  = "pinmanager_state";   // chrome.storage.local key
-const BATCH_SIZE   = 5;
-const LOCK_TIMEOUT = 5 * 60 * 1000;       // 5 min stale lock reclaim
+const STORAGE_KEY = "pinmanager_state";   // chrome.storage.local key
 
-const pinService = new PinService({ projectId: "pv-extract" });
-// const pinService = new PinService({ projectId: "pin-checker-d183" });
+// const pinService = new PinService({ projectId: "pv-extract" });
+const pinService = new PinService({ projectId: "pin-checker-d183d" });
 let running = false;
 
 // ─── On page load — resume if state exists ────────────────────────────────────
@@ -55,28 +53,29 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 async function processQueue(workerId, token, partitionId, pins) {
   if (!running) return;
 
+  // Fetch all pending pins for this partition once — only on first run
   if (pins.length === 0) {
-    try { await pinService.reclaimStalePins(token, LOCK_TIMEOUT, workerId); } catch (_) {}
-
-    let batch = null;
+    let allPins = null;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        batch = await pinService.fetchAndLockBatch(workerId, token, BATCH_SIZE, partitionId);
+        allPins = await pinService.fetchPartitionPins(token, partitionId);
         break;
       } catch (err) {
-        console.warn(`[PinManager] fetchAndLockBatch attempt ${attempt + 1} failed:`, err);
+        console.warn(`[PinManager] fetchPartitionPins attempt ${attempt + 1} failed:`, err);
         if (attempt < 2) await sleep(2000);
       }
     }
 
-    if (!batch || batch.length === 0) {
-      console.log("[PinManager] No more pending pins — worker done.");
+    if (!allPins || allPins.length === 0) {
+      console.log("[PinManager] No pending pins in partition", partitionId);
       await finishWorker(workerId);
       return;
     }
 
-    pins = batch;
-    console.log("[PinManager] Locked batch of", pins.length, "pins");
+    pins = allPins;
+    console.log("[PinManager] Fetched", pins.length, "pins for partition", partitionId);
+    // Save full list to storage so reloads can resume
+    await chromeSet(STORAGE_KEY, { running: true, workerId, token, partitionId, pins });
   }
 
   const { pin, docId } = pins[0];
@@ -95,6 +94,7 @@ async function processQueue(workerId, token, partitionId, pins) {
     console.warn("[PinManager] Skipped pin (validate-form still present):", pin);
   }
 
+  // Save remaining and reload for next pin
   await chromeSet(STORAGE_KEY, { running: true, workerId, token, partitionId, pins: remaining });
   window.location.reload();
 }
