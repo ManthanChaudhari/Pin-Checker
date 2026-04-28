@@ -47,7 +47,7 @@ class PinService {
         const pin         = chunk[j];
         const globalIndex = i + j;
         const partitionId = Math.floor(globalIndex / partitionSize);
-        const ref         = this._db.collection(this._collection).doc(pin);
+        const ref         = this._db.collection(this._collection).doc(); // auto-ID allows duplicates
         batch.set(ref, {
           pin,
           status:      "pending",
@@ -56,7 +56,7 @@ class PinService {
           lockedAt:    null,
           partitionId,
           createdAt:   firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
+        });
       }
       batch.set(this._statsRef, { total: inc(chunk.length), unchecked: inc(chunk.length) }, { merge: true });
       await batch.commit();

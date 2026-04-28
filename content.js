@@ -7,8 +7,8 @@ if (!location.href.startsWith("https://redeem.hype.games/widget")) {
 
 const STORAGE_KEY = "pinmanager_state";   // chrome.storage.local key
 
-// const pinService = new PinService({ projectId: "pv-extract" });
-const pinService = new PinService({ projectId: "pin-checker-d183d" });
+const pinService = new PinService({ projectId: "pv-extract" });
+// const pinService = new PinService({ projectId: "pin-checker-d183d" });
 let running = false;
 
 // ─── On page load — resume if state exists ────────────────────────────────────
