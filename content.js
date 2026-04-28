@@ -81,15 +81,17 @@ async function processQueue(workerId, token, partitionId, pins) {
   const { pin, docId } = pins[0];
   const remaining = pins.slice(1);
 
-  const success = await tryPin(pin);
+  const result = await tryPin(pin);
 
-  if (success !== null) {
+  if (result !== null) {
+    const { available, category } = result;
     try {
-      await pinService.updatePinDone(docId, success, token);
+      await pinService.updatePinDone(docId, available, token, category);
     } catch (err) {
       console.error("[PinManager] updatePinDone failed:", err);
     }
-    chrome.runtime.sendMessage({ action: "pinResult", pin, docId, success }).catch(() => {});
+    await appendLocalResult(partitionId, { pin, available, category });
+    chrome.runtime.sendMessage({ action: "pinResult", pin, docId, success: available }).catch(() => {});
   } else {
     console.warn("[PinManager] Skipped pin (validate-form still present):", pin);
   }
@@ -139,14 +141,21 @@ async function tryPin(pin) {
   // If validate-form is still present, submission didn't go through — skip this pin
   if (container.querySelector("#validate-form")) return null;
 
-  // Available if h1 exists AND redeem-form is present
-  const h1 = container.querySelector("h1");
-  if (h1 && container.querySelector("#redeem-form")) return true;
+  // Available if redeem-form is present
+  if (container.querySelector("#redeem-form")) {
+    // Find the h1 that contains a <strong> tag for the category
+    const h1WithStrong = container.querySelector("h1 strong");
+    const fullText = h1WithStrong?.textContent?.trim() || "";
+    // e.g. "Free Fire - 1060 Diamantes + 10 de Bonus - Colombia" → "1060 Diamantes"
+    const category = fullText.split("-")[1]?.split("+")[0]?.trim() || fullText;
+    console.log({category , fullText})
+    return { available: true, category };
+  }
 
-  // Only h1 present (no redeem-form) — unavailable
-  if (h1) return false;
+  // Any h1 present without redeem-form — unavailable
+  if (container.querySelector("h1")) return { available: false, category: "" };
 
-  return false;
+  return { available: false, category: "" };
 }
 
 function triggerInputEvents(el) {
@@ -175,4 +184,11 @@ function chromeSet(key, val) {
 }
 function chromeRemove(key) {
   return new Promise(resolve => chrome.storage.local.remove(key, resolve));
+}
+
+async function appendLocalResult(partitionId, result) {
+  const key      = `pinresults_${partitionId ?? "all"}`;
+  const existing = await chromeGet(key) || [];
+  existing.push(result);
+  await chromeSet(key, existing);
 }

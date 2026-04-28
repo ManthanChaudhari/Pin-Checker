@@ -419,7 +419,30 @@ document.getElementById("download-btn").addEventListener("click", async () => {
   downloadBtn.disabled = true;
   downloadStatus.innerHTML = '<span class="spinner"></span> Fetching pins...';
   try {
-    const rows = await pinService.downloadPins(activeFilter);
+    // Check local cache first — keyed by selected partition
+    const partitionSelect = document.getElementById("partition-select");
+    const partitionId     = partitionSelect?.value !== "" ? partitionSelect.value : "all";
+    const cacheKey        = `pinresults_${partitionId}`;
+    const cached          = await new Promise(r => chrome.storage.local.get(cacheKey, d => r(d[cacheKey] || null)));
+
+    let rows;
+    if (cached && cached.length > 0) {
+      rows = cached
+        .filter(r => {
+          if (activeFilter === "available")   return r.available === true;
+          if (activeFilter === "unavailable") return r.available === false;
+          if (activeFilter === "unchecked")   return r.available === null;
+          return true;
+        })
+        .map(r => ({
+          pin:      r.pin,
+          status:   r.available === true ? "Available" : r.available === false ? "Unavailable" : "Unchecked",
+          category: r.category || ""
+        }));
+    } else {
+      rows = await pinService.downloadPins(activeFilter);
+    }
+
     if (!rows.length) {
       downloadStatus.innerHTML = `<span class="error">No pins found for this filter.</span>`;
       downloadBtn.disabled = false; return;
@@ -427,12 +450,10 @@ document.getElementById("download-btn").addEventListener("click", async () => {
 
     let content, filename;
     if (activeFormat === "csv") {
-      // Two columns: pin, status
-      content  = "pin,status\n" + rows.map(r => `${r.pin},${r.status}`).join("\n");
+      content  = "pin,status,category\n" + rows.map(r => `${r.pin},${r.status},${r.category || ""}`).join("\n");
       filename = `pins_${activeFilter}.csv`;
     } else {
-      // TXT: tab-separated
-      content  = "pin\tstatus\n" + rows.map(r => `${r.pin}\t${r.status}`).join("\n");
+      content  = "pin\tstatus\tcategory\n" + rows.map(r => `${r.pin}\t${r.status}\t${r.category || ""}`).join("\n");
       filename = `pins_${activeFilter}.txt`;
     }
 
@@ -442,7 +463,8 @@ document.getElementById("download-btn").addEventListener("click", async () => {
     const a    = document.createElement("a");
     a.href = url; a.download = filename; a.click();
     URL.revokeObjectURL(url);
-    downloadStatus.innerHTML = `<span class="success">✓ Downloaded ${rows.length} pins.</span>`;
+    const source = cached ? "local cache" : "Firestore";
+    downloadStatus.innerHTML = `<span class="success">✓ Downloaded ${rows.length} pins (${source}).</span>`;
     downloadInfo.textContent = `Last export: ${rows.length} pins (${activeFilter})`;
   } catch (err) {
     downloadStatus.innerHTML = `<span class="error">✗ ${err.message}</span>`;

@@ -80,7 +80,7 @@ class PinService {
       .map(d => {
         const val = d.data().available;
         const status = val === true ? "Available" : val === false ? "Unavailable" : "Unchecked";
-        return { pin: d.data().pin || d.id, status };
+        return { pin: d.data().pin || d.id, status, category: d.data().category || "" };
       });
   }
 
@@ -168,9 +168,9 @@ class PinService {
       .filter(Boolean);
   }
 
-  async updatePinDone(docId, available, token) {
+  async updatePinDone(docId, available, token, category = "") {
     const url = `${this._baseUrl}/${encodeURIComponent(docId)}` +
-      `?updateMask.fieldPaths=status&updateMask.fieldPaths=available&updateMask.fieldPaths=lockedBy&updateMask.fieldPaths=lockedAt`;
+      `?updateMask.fieldPaths=status&updateMask.fieldPaths=available&updateMask.fieldPaths=lockedBy&updateMask.fieldPaths=lockedAt&updateMask.fieldPaths=category`;
 
     const res = await fetch(url, {
       method: "PATCH",
@@ -180,7 +180,8 @@ class PinService {
           status:    { stringValue: "done" },
           available: { booleanValue: available },
           lockedBy:  { nullValue: null },
-          lockedAt:  { nullValue: null }
+          lockedAt:  { nullValue: null },
+          category:  { stringValue: category }
         }
       })
     });
