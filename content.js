@@ -83,6 +83,8 @@ async function processQueue(workerId, token, partitionId, pins) {
 
   const result = await tryPin(pin);
 
+  if (!running) return;
+
   if (result !== null) {
     const { available, category } = result;
     try {
@@ -90,11 +92,14 @@ async function processQueue(workerId, token, partitionId, pins) {
     } catch (err) {
       console.error("[PinManager] updatePinDone failed:", err);
     }
+    if (!running) return;
     await appendLocalResult(partitionId, { pin, available, category });
     chrome.runtime.sendMessage({ action: "pinResult", pin, docId, success: available }).catch(() => {});
   } else {
     console.warn("[PinManager] Skipped pin (validate-form still present):", pin);
   }
+
+  if (!running) return;
 
   // Save remaining and reload for next pin
   await chromeSet(STORAGE_KEY, { running: true, workerId, token, partitionId, pins: remaining });
@@ -138,8 +143,16 @@ async function tryPin(pin) {
 
   const container = contentEl || document.body;
 
-  // If validate-form is still present, submission didn't go through — skip this pin
-  if (container.querySelector("#validate-form")) return null;
+  // If validate-form is still present, check if a validation error was displayed
+  if (container.querySelector("#validate-form")) {
+    const currentErrorEl = container.querySelector(".hpws-form-element__error");
+    const errorText = currentErrorEl ? currentErrorEl.textContent.trim() : "";
+    if (errorText !== "") {
+      console.log("[PinManager] Pin is invalid/unavailable. Form error:", errorText);
+      return { available: false, category: "" };
+    }
+    return null;
+  }
 
   // Available if redeem-form is present
   if (container.querySelector("#redeem-form")) {

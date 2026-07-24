@@ -109,7 +109,15 @@ class PinService {
       await batch.commit();
     }
 
-    if (toDelete.length > 0) {
+    if (filter === "all") {
+      await this._statsRef.set({
+        total: 0,
+        available: 0,
+        unavailable: 0,
+        unchecked: 0,
+        totalPartitions: 1
+      });
+    } else if (toDelete.length > 0) {
       const inc = firebase.firestore.FieldValue.increment;
       await this._statsRef.set({
         total:       inc(-toDelete.length),

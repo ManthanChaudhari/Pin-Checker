@@ -84,31 +84,71 @@
     /* Login screen */
     #login-screen {
       display: flex; flex-direction: column; align-items: center;
-      justify-content: center; padding: 40px 30px; min-height: 480px;
+      justify-content: center; padding: 40px 30px; min-height: 420px;
     }
-    #login-screen .logo { font-size: 36px; margin-bottom: 8px; }
-    #login-screen h2 { color: #6c63ff; font-size: 18px; margin-bottom: 24px; }
     #login-error { color: #f87171; font-size: 12px; margin-bottom: 8px; min-height: 18px; text-align: center; }
     #login-btn { margin-top: 0; }
+
+    /* Header styling */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+      background: #16162a;
+      border-bottom: 1px solid #2a2a4a;
+    }
+    .header .title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #6c63ff;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .lang-select {
+      background: #0f0f1a;
+      color: #e0e0e0;
+      border: 1px solid #2a2a4a;
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: 12px;
+      cursor: pointer;
+      outline: none;
+      transition: border-color .2s;
+    }
+    .lang-select:hover, .lang-select:focus {
+      border-color: #6c63ff;
+    }
   </style>
 </head>
 <body>
 
+<!-- HEADER BAR -->
+<div class="header">
+  <div class="title">
+    <span>🔐</span>
+    <span data-i18n="title">Pin Manager</span>
+  </div>
+  <select id="lang-select" class="lang-select">
+    <option value="en">English (EN)</option>
+    <option value="es" selected>Español (ES)</option>
+  </select>
+</div>
+
 <!-- LOGIN SCREEN -->
 <div id="login-screen">
-  <div class="logo">🔐</div>
-  <h2>Pin Manager</h2>
   <div id="login-error"></div>
-  <button class="btn" id="login-btn">Sign In</button>
+  <button class="btn" id="login-btn" data-i18n="signIn">Sign In</button>
 </div>
 
 <!-- MAIN APP -->
 <div id="app" style="display:none">
 
   <div class="tabs">
-    <button class="tab-btn active" data-tab="upload">📤 Upload</button>
-    <button class="tab-btn" data-tab="dashboard">📊 Dashboard</button>
-    <button class="tab-btn" data-tab="download">📥 Download</button>
+    <button class="tab-btn active" data-tab="upload" data-i18n="tabUpload">📤 Upload</button>
+    <button class="tab-btn" data-tab="dashboard" data-i18n="tabDashboard">📊 Dashboard</button>
+    <button class="tab-btn" data-tab="download" data-i18n="tabDownload">📥 Download</button>
   </div>
 
   <!-- UPLOAD TAB -->
@@ -117,31 +157,31 @@
       <svg width="40" height="40" fill="none" viewBox="0 0 24 24" stroke="#6c63ff" stroke-width="1.5">
         <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
       </svg>
-      <p>Drop your Excel / CSV file here</p>
-      <p style="font-size:11px; margin-top:4px;">or click to browse</p>
+      <p data-i18n="dropZoneText">Drop your Excel / CSV file here</p>
+      <p style="font-size:11px; margin-top:4px;" data-i18n="dropZoneOr">or click to browse</p>
       <input type="file" id="file-input" accept=".csv,.xlsx,.xls" />
     </div>
     <div id="preview-count"></div>
 
     <div style="margin-top:12px; display:flex; align-items:center; gap:10px;">
-      <label style="font-size:12px; color:#aaa; white-space:nowrap;">Pins per partition:</label>
+      <label style="font-size:12px; color:#aaa; white-space:nowrap;" data-i18n="pinsPerPartition">Pins per partition:</label>
       <input id="partition-size" type="number" min="50" max="2000" value="500"
         style="flex:1; padding:7px 10px; background:#1a1a2e; color:#e0e0e0; border:1px solid #2a2a4a; border-radius:6px; font-size:13px;" />
     </div>
     <p id="partition-preview" style="font-size:11px; color:#666; margin-top:5px;"></p>
-    <button class="btn" id="upload-btn" disabled>Upload Pins to Firestore</button>
+    <button class="btn" id="upload-btn" disabled data-i18n="uploadBtn">Upload Pins to Firestore</button>
     <div id="upload-status"></div>
 
     <!-- DELETE SECTION -->
     <div style="margin-top:24px; border-top:1px solid #2a2a4a; padding-top:18px;">
-      <p style="font-size:13px; color:#aaa; margin-bottom:10px;">Delete pins:</p>
+      <p style="font-size:13px; color:#aaa; margin-bottom:10px;" data-i18n="deletePinsLabel">Delete pins:</p>
       <div class="filter-group">
-        <button class="del-filter-btn active" data-del="all">All</button>
-        <button class="del-filter-btn" data-del="available">Available</button>
-        <button class="del-filter-btn" data-del="unavailable">Unavailable</button>
-        <button class="del-filter-btn" data-del="unchecked">Unchecked</button>
+        <button class="del-filter-btn active" data-del="all" data-i18n="delAll">All</button>
+        <button class="del-filter-btn" data-del="available" data-i18n="delAvailable">Available</button>
+        <button class="del-filter-btn" data-del="unavailable" data-i18n="delUnavailable">Unavailable</button>
+        <button class="del-filter-btn" data-del="unchecked" data-i18n="delUnchecked">Unchecked</button>
       </div>
-      <button class="btn" id="delete-btn" style="background:#f87171; color:#0f0f1a;">🗑 Delete Pins</button>
+      <button class="btn" id="delete-btn" style="background:#f87171; color:#0f0f1a;" data-i18n="deleteBtn">🗑 Delete Pins</button>
       <div id="delete-status" style="margin-top:10px; font-size:13px; min-height:18px;"></div>
     </div>
   </div>
@@ -151,34 +191,34 @@
     <div class="stats">
       <div class="stat-card total">
         <div class="num" id="stat-total">—</div>
-        <div class="label">Total</div>
+        <div class="label" data-i18n="statTotal">Total</div>
       </div>
       <div class="stat-card unchecked">
         <div class="num" id="stat-unchecked">—</div>
-        <div class="label">Unchecked</div>
+        <div class="label" data-i18n="statUnchecked">Unchecked</div>
       </div>
       <div class="stat-card available">
         <div class="num" id="stat-available">—</div>
-        <div class="label">Available</div>
+        <div class="label" data-i18n="statAvailable">Available</div>
       </div>
       <div class="stat-card unavailable">
         <div class="num" id="stat-unavailable">—</div>
-        <div class="label">Unavailable</div>
+        <div class="label" data-i18n="statUnavailable">Unavailable</div>
       </div>
     </div>
-    <button class="btn refresh-btn" id="refresh-btn">↻ Refresh Stats</button>
+    <button class="btn refresh-btn" id="refresh-btn" data-i18n="refreshBtn">↻ Refresh Stats</button>
 
     <div style="margin-top:14px; padding:10px; background:#1a1a2e; border-radius:8px; border:1px solid #2a2a4a;">
-      <p style="font-size:11px; color:#888; margin-bottom:6px;">Partition (browser assignment):</p>
+      <p style="font-size:11px; color:#888; margin-bottom:6px;" data-i18n="partitionLabel">Partition (browser assignment):</p>
       <select id="partition-select" style="width:100%; padding:7px; background:#0f0f1a; color:#e0e0e0; border:1px solid #2a2a4a; border-radius:6px; font-size:12px;">
-        <option value="">— No partition (all pins) —</option>
+        <option value="" data-i18n="noPartition">— No partition (all pins) —</option>
       </select>
       <p id="partition-info" style="font-size:10px; color:#666; margin-top:5px;"></p>
     </div>
 
     <div style="display:flex; gap:10px; margin-top:10px;">
-      <button class="btn" id="start-btn" style="margin-top:0; background:#4ade80; color:#0f0f1a;">▶ Start</button>
-      <button class="btn" id="stop-btn" style="margin-top:0; background:#f87171; color:#0f0f1a; display:none;">■ Stop</button>
+      <button class="btn" id="start-btn" style="margin-top:0; background:#4ade80; color:#0f0f1a;" data-i18n="startBtn">▶ Start</button>
+      <button class="btn" id="stop-btn" style="margin-top:0; background:#f87171; color:#0f0f1a; display:none;" data-i18n="stopBtn">■ Stop</button>
     </div>
     <div id="run-status" style="margin-top:10px; font-size:12px; color:#aaa; min-height:18px;"></div>
     <div id="dash-status" style="margin-top:6px; font-size:13px;"></div>
@@ -186,19 +226,19 @@
 
   <!-- DOWNLOAD TAB -->
   <div id="tab-download" class="tab-content">
-    <p style="font-size:13px; color:#aaa; margin-bottom:12px;">Filter pins to download:</p>
+    <p style="font-size:13px; color:#aaa; margin-bottom:12px;" data-i18n="filterPinsLabel">Filter pins to download:</p>
     <div class="filter-group">
-      <button class="filter-btn active" data-filter="all">All</button>
-      <button class="filter-btn" data-filter="available">Available</button>
-      <button class="filter-btn" data-filter="unavailable">Unavailable</button>
+      <button class="filter-btn active" data-filter="all" data-i18n="filterAll">All</button>
+      <button class="filter-btn" data-filter="available" data-i18n="filterAvailable">Available</button>
+      <button class="filter-btn" data-filter="unavailable" data-i18n="filterUnavailable">Unavailable</button>
     </div>
-    <p style="font-size:13px; color:#aaa; margin-bottom:8px;">Format:</p>
+    <p style="font-size:13px; color:#aaa; margin-bottom:8px;" data-i18n="formatLabel">Format:</p>
     <div class="format-group">
       <button class="format-btn active" data-format="csv">CSV</button>
       <button class="format-btn" data-format="txt">TXT (one per line)</button>
     </div>
     <div id="download-info"></div>
-    <button class="btn" id="download-btn">Download Pins</button>
+    <button class="btn" id="download-btn" data-i18n="downloadBtn">Download Pins</button>
     <div id="download-status" style="margin-top:10px; font-size:13px;"></div>
   </div>
 

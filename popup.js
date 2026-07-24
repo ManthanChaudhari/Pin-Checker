@@ -1,3 +1,198 @@
+// ─── Localization ─────────────────────────────────────────────────────────────
+const i18n = {
+  en: {
+    // Header & Login
+    title: "Pin Manager",
+    signIn: "Sign In",
+    signingIn: "Signing in...",
+    signInFailed: "Sign in failed. Please try again.",
+
+    // Tabs
+    tabUpload: "Upload",
+    tabDashboard: "Dashboard",
+    tabDownload: "Download",
+
+    // Upload Tab
+    dropZoneText: "Drop your Excel / CSV file here",
+    dropZoneOr: "or click to browse",
+    readingFile: "Reading file...",
+    failedParseExcel: "Failed to parse Excel file.",
+    foundPins: "✓ Found {count} unique pin(s) in \"{filename}\"",
+    noValidPins: "No valid pins (UUIDs) found in this file.",
+    pinsPerPartition: "Pins per partition:",
+    partitionPreview: "→ {partitions} partition(s) of ~{size} pins each — run {partitions} browser(s)",
+    uploadBtn: "Upload Pins to Firestore",
+    uploading: "Uploading...",
+    uploadedSuccess: "✓ {uploaded} pins uploaded across {totalPartitions} partition(s).",
+    uploadError: "✗ Error: {message}",
+    deletePinsLabel: "Delete pins:",
+    delAll: "All",
+    delAvailable: "Available",
+    delUnavailable: "Unavailable",
+    delUnchecked: "Unchecked",
+    deleteBtn: "Delete Pins",
+    deleting: "Deleting...",
+    deletedSuccess: "✓ {deleted} pins deleted.",
+    confirmDelete: "Delete all {label} pins? This cannot be undone.",
+
+    // Dashboard Tab
+    statTotal: "Total",
+    statUnchecked: "Unchecked",
+    statAvailable: "Available",
+    statUnavailable: "Unavailable",
+    loading: "Loading...",
+    refreshBtn: "Refresh Stats",
+    partitionLabel: "Partition (browser assignment):",
+    noPartition: "— No partition (all pins) —",
+    partitionInfo: "{totalPartitions} partition(s) — run {totalPartitions} browser(s) in parallel, one per partition.",
+    startBtn: "Start",
+    stopBtn: "Stop",
+    startingWorker: "Starting worker...",
+    openWidgetError: "Please open https://redeem.hype.games/widget/ in the active tab first.",
+    reloadingPage: "Reloading page to inject content script...",
+    waitingPageLoad: "Waiting for page to load...",
+    widgetFrameError: "Widget iframe not found after reload. Make sure https://redeem.hype.games/widget is open.",
+    widgetFrameError2: "Widget iframe not found. Make sure https://redeem.hype.games/widget is open and fully loaded.",
+    connectingFrame: "Connecting to widget frame...",
+    unreachableScript: "Could not reach content script. Try reloading the page.",
+    workerRunning: "Worker {workerId}…{partLabel} running...",
+    workerRunningMsg: "Worker running...",
+    processingStatus: "Processing... {processed} done — Pin: {pin}… {status}",
+    doneStatus: "✓ Done — {processed} pins processed.",
+    stopped: "Stopped.",
+
+    // Download Tab
+    filterPinsLabel: "Filter pins to download:",
+    filterAll: "All",
+    filterAvailable: "Available",
+    filterUnavailable: "Unavailable",
+    formatLabel: "Format:",
+    downloadBtn: "Download Pins",
+    fetchingPins: "Fetching pins...",
+    noPinsFound: "No pins found for this filter.",
+    downloadSuccess: "✓ Downloaded {count} pins ({source}).",
+    lastExport: "Last export: {count} pins ({filter})"
+  },
+  es: {
+    // Header & Login
+    title: "Gestor de Pines",
+    signIn: "Iniciar Sesión",
+    signingIn: "Iniciando sesión...",
+    signInFailed: "Error al iniciar sesión. Por favor, inténtelo de nuevo.",
+
+    // Tabs
+    tabUpload: "Subir",
+    tabDashboard: "Tablero",
+    tabDownload: "Descargar",
+
+    // Upload Tab
+    dropZoneText: "Arrastre su archivo Excel / CSV aquí",
+    dropZoneOr: "o haga clic para buscar",
+    readingFile: "Leyendo archivo...",
+    failedParseExcel: "Error al analizar el archivo Excel.",
+    foundPins: "✓ Se encontraron {count} pin(es) único(s) en \"{filename}\"",
+    noValidPins: "No se encontraron pines válidos (UUIDs) en este archivo.",
+    pinsPerPartition: "Pines por partición:",
+    partitionPreview: "→ {partitions} partición(es) de ~{size} pines cada una — ejecute {partitions} navegador(es)",
+    uploadBtn: "Subir Pines a Firestore",
+    uploading: "Subiendo...",
+    uploadedSuccess: "✓ {uploaded} pines subidos en {totalPartitions} partición(es).",
+    uploadError: "✗ Error: {message}",
+    deletePinsLabel: "Eliminar pines:",
+    delAll: "Todos",
+    delAvailable: "Disponibles",
+    delUnavailable: "No disponibles",
+    delUnchecked: "Sin verificar",
+    deleteBtn: "Eliminar Pines",
+    deleting: "Eliminando...",
+    deletedSuccess: "✓ {deleted} pines eliminados.",
+    confirmDelete: "¿Eliminar todos los pines {label}? Esto no se puede deshacer.",
+
+    // Dashboard Tab
+    statTotal: "Total",
+    statUnchecked: "Sin verificar",
+    statAvailable: "Disponibles",
+    statUnavailable: "No disponibles",
+    loading: "Cargando...",
+    refreshBtn: "Actualizar Estadísticas",
+    partitionLabel: "Partición (asignación del navegador):",
+    noPartition: "— Sin partición (todos los pines) —",
+    partitionInfo: "{totalPartitions} partición(es) — ejecute {totalPartitions} navegador(es) en paralelo, uno por partición.",
+    startBtn: "Iniciar",
+    stopBtn: "Detener",
+    startingWorker: "Iniciando trabajador...",
+    openWidgetError: "Por favor, abra primero https://redeem.hype.games/widget/ en la pestaña activa.",
+    reloadingPage: "Recargando página para inyectar script de contenido...",
+    waitingPageLoad: "Esperando que la página cargue...",
+    widgetFrameError: "No se encontró el iframe del widget después de recargar. Asegúrese de que https://redeem.hype.games/widget esté abierto.",
+    widgetFrameError2: "No se encontró el iframe del widget. Asegúrese de que https://redeem.hype.games/widget esté abierto y completamente cargado.",
+    connectingFrame: "Conectando al iframe del widget...",
+    unreachableScript: "No se pudo comunicar con el script de contenido. Intente recargar la página.",
+    workerRunning: "Trabajador {workerId}…{partLabel} ejecutándose...",
+    workerRunningMsg: "Trabajador ejecutándose...",
+    processingStatus: "Procesando... {processed} listos — Pin: {pin}… {status}",
+    doneStatus: "✓ Completado — {processed} pines procesados.",
+    stopped: "Detenido.",
+
+    // Download Tab
+    filterPinsLabel: "Filtrar pines para descargar:",
+    filterAll: "Todos",
+    filterAvailable: "Disponibles",
+    filterUnavailable: "No disponibles",
+    formatLabel: "Formato:",
+    downloadBtn: "Descargar Pines",
+    fetchingPins: "Obteniendo pines...",
+    noPinsFound: "No se encontraron pines para este filtro.",
+    downloadSuccess: "✓ Se descargaron {count} pines ({source}).",
+    lastExport: "Última exportación: {count} pines ({filter})"
+  }
+};
+
+let currentLang = "es";
+
+function setLanguage(lang) {
+  currentLang = lang;
+  chrome.storage.local.set({ appLanguage: lang });
+
+  const langSelect = document.getElementById("lang-select");
+  if (langSelect) langSelect.value = lang;
+
+  document.querySelectorAll("[data-i18n]").forEach(el => {
+    const key = el.dataset.i18n;
+    if (i18n[lang] && i18n[lang][key]) {
+      const text = i18n[lang][key];
+      if (key === 'tabUpload') {
+        el.innerHTML = `📤 ${text}`;
+      } else if (key === 'tabDashboard') {
+        el.innerHTML = `📊 ${text}`;
+      } else if (key === 'tabDownload') {
+        el.innerHTML = `📥 ${text}`;
+      } else if (key === 'deleteBtn') {
+        el.innerHTML = `🗑 ${text}`;
+      } else if (key === 'refreshBtn') {
+        el.innerHTML = `↻ ${text}`;
+      } else if (key === 'startBtn') {
+        el.innerHTML = `▶ ${text}`;
+      } else if (key === 'stopBtn') {
+        el.innerHTML = `■ ${text}`;
+      } else {
+        el.textContent = text;
+      }
+    }
+  });
+
+  // Re-trigger updates
+  updatePartitionPreview();
+}
+
+function t(key, params = {}) {
+  let text = i18n[currentLang]?.[key] || i18n["en"][key] || key;
+  for (const [k, v] of Object.entries(params)) {
+    text = text.replace(`{${k}}`, v);
+  }
+  return text;
+}
+
 // ─── Firebase init ────────────────────────────────────────────────────────────
 const firebaseConfig = {
   apiKey: "AIzaSyA5FcPE7xE0DLPlyIQ2Snk667Gqz1UlH4I",
@@ -45,19 +240,34 @@ auth.onAuthStateChanged(user => {
   }
 });
 
+// Load language preference
+chrome.storage.local.get("appLanguage", data => {
+  if (data.appLanguage) {
+    setLanguage(data.appLanguage);
+  } else {
+    // Default to Spanish
+    setLanguage("es");
+  }
+});
+
+// Setup language listener
+document.getElementById("lang-select")?.addEventListener("change", (e) => {
+  setLanguage(e.target.value);
+});
+
 loginBtn.addEventListener("click", doLogin);
 
 async function doLogin() {
   loginError.textContent = "";
   loginBtn.disabled = true;
-  loginBtn.innerHTML = '<span class="spinner"></span> Signing in...';
+  loginBtn.innerHTML = `<span class="spinner"></span> ${t('signingIn')}`;
   try {
     await auth.signInWithEmailAndPassword(HARDCODED_EMAIL, HARDCODED_PASS);
   } catch (_) {
-    loginError.textContent = "Sign in failed. Please try again.";
+    loginError.textContent = t('signInFailed');
   } finally {
     loginBtn.disabled = false;
-    loginBtn.textContent = "Sign In";
+    loginBtn.textContent = t('signIn');
   }
 }
 
@@ -93,7 +303,7 @@ fileInput.addEventListener("change", () => handleFile(fileInput.files[0]));
 function handleFile(file) {
   if (!file) return;
   uploadStatus.textContent = "";
-  previewCount.textContent = "Reading file...";
+  previewCount.textContent = t('readingFile');
   uploadBtn.disabled = true;
   const reader = new FileReader();
   if (file.name.toLowerCase().endsWith(".csv")) {
@@ -105,7 +315,7 @@ function handleFile(file) {
         const wb    = XLSX.read(e.target.result, { type: "binary" });
         const sheet = wb.Sheets[wb.SheetNames[0]];
         extractFromText(XLSX.utils.sheet_to_csv(sheet), file.name);
-      } catch (_) { previewCount.textContent = "Failed to parse Excel file."; }
+      } catch (_) { previewCount.textContent = t('failedParseExcel'); }
     };
     reader.readAsBinaryString(file);
   }
@@ -115,11 +325,11 @@ function extractFromText(text, filename) {
   const matches = text.match(UUID_REGEX) || [];
   parsedPins = [...new Set(matches.map(p => p.toUpperCase()))];
   if (parsedPins.length > 0) {
-    previewCount.textContent = `✓ Found ${parsedPins.length} unique pin(s) in "${filename}"`;
+    previewCount.textContent = t('foundPins', { count: parsedPins.length, filename });
     uploadBtn.disabled = false;
     updatePartitionPreview();
   } else {
-    previewCount.textContent = "No valid pins (UUIDs) found in this file.";
+    previewCount.textContent = t('noValidPins');
     uploadBtn.disabled = true;
   }
 }
@@ -130,7 +340,7 @@ function updatePartitionPreview() {
   if (!sizeInput || !preview || !parsedPins.length) return;
   const size       = Math.max(1, parseInt(sizeInput.value) || 500);
   const partitions = Math.ceil(parsedPins.length / size);
-  preview.textContent = `→ ${partitions} partition(s) of ~${size} pins each — run ${partitions} browser(s)`;
+  preview.textContent = t('partitionPreview', { partitions, size });
 }
 
 document.getElementById("partition-size")?.addEventListener("input", updatePartitionPreview);
@@ -138,11 +348,11 @@ document.getElementById("partition-size")?.addEventListener("input", updateParti
 uploadBtn.addEventListener("click", async () => {
   if (!parsedPins.length) return;
   uploadBtn.disabled = true;
-  uploadStatus.innerHTML = '<span class="spinner"></span> Uploading...';
+  uploadStatus.innerHTML = `<span class="spinner"></span> ${t('uploading')}`;
   try {
     const partitionSize = Math.max(1, parseInt(document.getElementById("partition-size")?.value) || 500);
     const { uploaded, totalPartitions } = await pinService.uploadPins(parsedPins, partitionSize);
-    uploadStatus.innerHTML = `<span class="success">✓ ${uploaded} pins uploaded across ${totalPartitions} partition(s).</span>`;
+    uploadStatus.innerHTML = `<span class="success">${t('uploadedSuccess', { uploaded, totalPartitions })}</span>`;
     // Store partition info for the dashboard selector
     await new Promise(r => chrome.storage.local.set({ totalPartitions }, r));
     updatePartitionSelector(totalPartitions);
@@ -150,7 +360,7 @@ uploadBtn.addEventListener("click", async () => {
     previewCount.textContent = "";
     fileInput.value = "";
   } catch (err) {
-    uploadStatus.innerHTML = `<span class="error">✗ Error: ${err.message}</span>`;
+    uploadStatus.innerHTML = `<span class="error">${t('uploadError', { message: err.message })}</span>`;
     uploadBtn.disabled = false;
   }
 });
@@ -170,14 +380,33 @@ document.getElementById("delete-btn").addEventListener("click", async () => {
   const deleteBtn    = document.getElementById("delete-btn");
   const deleteStatus = document.getElementById("delete-status");
 
-  const label = activeDelFilter === "all" ? "ALL" : activeDelFilter;
-  if (!confirm(`Delete all ${label} pins? This cannot be undone.`)) return;
+  const labelKey = activeDelFilter === "all" ? "delAll" : activeDelFilter === "available" ? "delAvailable" : activeDelFilter === "unavailable" ? "delUnavailable" : "delUnchecked";
+  const translatedLabel = t(labelKey);
+  if (!confirm(t('confirmDelete', { label: translatedLabel }))) return;
 
   deleteBtn.disabled = true;
-  deleteStatus.innerHTML = '<span class="spinner"></span> Deleting...';
+  deleteStatus.innerHTML = `<span class="spinner"></span> ${t('deleting')}`;
   try {
     const deleted = await pinService.deletePins(activeDelFilter);
-    deleteStatus.innerHTML = `<span class="success">✓ ${deleted} pins deleted.</span>`;
+    deleteStatus.innerHTML = `<span class="success">${t('deletedSuccess', { deleted })}</span>`;
+
+    // Clear worker state and local results cache upon deletion
+    await new Promise(resolve => {
+      chrome.storage.local.get(null, (items) => {
+        const keysToRemove = ["pinmanager_state"];
+        for (const key of Object.keys(items)) {
+          if (key.startsWith("pinresults_")) {
+            keysToRemove.push(key);
+          }
+        }
+        chrome.storage.local.remove(keysToRemove, resolve);
+      });
+    });
+
+    // Reset UI if worker was running
+    stopStatsInterval();
+    resetRunUI();
+    await loadStats();
   } catch (err) {
     deleteStatus.innerHTML = `<span class="error">✗ ${err.message}</span>`;
   } finally {
@@ -188,7 +417,7 @@ document.getElementById("delete-btn").addEventListener("click", async () => {
 // ─── Dashboard Tab ────────────────────────────────────────────────────────────
 async function loadStats() {
   const dashStatus = document.getElementById("dash-status");
-  dashStatus.innerHTML = '<span class="spinner"></span> Loading...';
+  dashStatus.innerHTML = `<span class="spinner"></span> ${t('loading')}`;
   setStatEls("—", "—", "—", "—");
   try {
     const { total, available, unavailable, unchecked, totalPartitions } = await pinService.getStats();
@@ -237,7 +466,7 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
   if (state && state.running) {
     startBtn.style.display = "none";
     stopBtn.style.display  = "block";
-    runStatus.textContent  = "Worker running...";
+    runStatus.textContent  = t('workerRunningMsg');
   }
   // Load partitions from Firestore so all browsers see the same value
   try {
@@ -257,7 +486,7 @@ function updatePartitionSelector(totalPartitions) {
     opt.textContent = `Partition ${i + 1}`;
     select.appendChild(opt);
   }
-  info.textContent = `${totalPartitions} partition(s) — run ${totalPartitions} browser(s) in parallel, one per partition.`;
+  info.textContent = t('partitionInfo', { totalPartitions });
 }
 
 // ─── Automation ───────────────────────────────────────────────────────────────
@@ -269,13 +498,13 @@ startBtn.addEventListener("click", startAutomation);
 stopBtn.addEventListener("click", stopAutomation);
 
 async function startAutomation() {
-  runStatus.textContent = "Starting worker...";
+  runStatus.textContent = t('startingWorker');
   startBtn.style.display = "none";
   stopBtn.style.display = "block";
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !tab.url || !tab.url.includes("redeem.hype.games")) {
-    runStatus.innerHTML = `<span class="error">Please open https://redeem.hype.games/widget/ in the active tab first.</span>`;
+    runStatus.innerHTML = `<span class="error">${t('openWidgetError')}</span>`;
     resetRunUI(); return;
   }
 
@@ -290,13 +519,13 @@ async function startAutomation() {
 
   const token = await auth.currentUser.getIdToken();
 
-  runStatus.textContent = "Reloading page to inject content script...";
+  runStatus.textContent = t('reloadingPage');
   await chrome.tabs.reload(tab.id);
 
-  runStatus.textContent = "Waiting for page to load...";
+  runStatus.textContent = t('waitingPageLoad');
   const widgetFrame = await findWidgetFrame(tab.id, 15000);
   if (!widgetFrame) {
-    runStatus.innerHTML = `<span class="error">Widget iframe not found after reload. Make sure https://redeem.hype.games/widget is open.</span>`;
+    runStatus.innerHTML = `<span class="error">${t('widgetFrameError')}</span>`;
     resetRunUI(); return;
   }
 
@@ -306,34 +535,34 @@ async function startAutomation() {
   const listener = (msg) => {
     if (msg.action === "pinResult") {
       processed++;
-      runStatus.textContent = `Processing... ${processed} done — Pin: ${msg.pin.slice(0, 8)}… ${msg.success ? "✓" : "✗"}`;
+      runStatus.textContent = t('processingStatus', { processed, pin: msg.pin.slice(0, 8), status: msg.success ? "✓" : "✗" });
     }
     if (msg.action === "done") {
       chrome.runtime.onMessage.removeListener(listener);
-      runStatus.innerHTML = `<span class="success">✓ Done — ${processed} pins processed.</span>`;
+      runStatus.innerHTML = `<span class="success">${t('doneStatus', { processed })}</span>`;
       stopAutomation();
       loadStats();
     }
   };
   chrome.runtime.onMessage.addListener(listener);
 
-  runStatus.textContent = "Connecting to widget frame...";
+  runStatus.textContent = t('connectingFrame');
   const widgetFrame2 = await findWidgetFrame(tab.id, 10000);
   if (!widgetFrame2) {
-    runStatus.innerHTML = `<span class="error">Widget iframe not found. Make sure https://redeem.hype.games/widget is open and fully loaded.</span>`;
+    runStatus.innerHTML = `<span class="error">${t('widgetFrameError2')}</span>`;
     chrome.runtime.onMessage.removeListener(listener);
     resetRunUI(); return;
   }
 
   const sent = await sendToFrame(tab.id, widgetFrame2.frameId, { action: "start", workerId, token, partitionId }, 8000);
   if (!sent) {
-    runStatus.innerHTML = `<span class="error">Could not reach content script. Try reloading the page.</span>`;
+    runStatus.innerHTML = `<span class="error">${t('unreachableScript')}</span>`;
     chrome.runtime.onMessage.removeListener(listener);
     resetRunUI(); return;
   }
 
-  const partLabel = partitionId !== null ? ` (Partition ${partitionId})` : "";
-  runStatus.textContent = `Worker ${workerId.slice(0, 8)}…${partLabel} running...`;
+  const partLabel = partitionId !== null ? ` (${t('statTotal').toLowerCase() === 'total' ? 'Partition' : 'Partición'} ${partitionId + 1})` : "";
+  runStatus.textContent = t('workerRunning', { workerId: workerId.slice(0, 8), partLabel });
   startStatsInterval();
 }
 
@@ -345,7 +574,8 @@ async function stopAutomation() {
       sendToFrame(tab.id, widgetFrame.frameId, { action: "stop" }, 2000).catch(() => {});
     }
   }
-  runStatus.textContent = "Stopped.";
+  await new Promise(r => chrome.storage.local.remove("pinmanager_state", r));
+  runStatus.textContent = t('stopped');
   stopStatsInterval();
   resetRunUI();
 }
@@ -417,7 +647,7 @@ document.getElementById("download-btn").addEventListener("click", async () => {
   const downloadInfo   = document.getElementById("download-info");
 
   downloadBtn.disabled = true;
-  downloadStatus.innerHTML = '<span class="spinner"></span> Fetching pins...';
+  downloadStatus.innerHTML = `<span class="spinner"></span> ${t('fetchingPins')}`;
   try {
     // Check local cache first — keyed by selected partition
     const partitionSelect = document.getElementById("partition-select");
@@ -444,7 +674,7 @@ document.getElementById("download-btn").addEventListener("click", async () => {
     }
 
     if (!rows.length) {
-      downloadStatus.innerHTML = `<span class="error">No pins found for this filter.</span>`;
+      downloadStatus.innerHTML = `<span class="error">${t('noPinsFound')}</span>`;
       downloadBtn.disabled = false; return;
     }
 
@@ -464,8 +694,9 @@ document.getElementById("download-btn").addEventListener("click", async () => {
     a.href = url; a.download = filename; a.click();
     URL.revokeObjectURL(url);
     const source = cached ? "local cache" : "Firestore";
-    downloadStatus.innerHTML = `<span class="success">✓ Downloaded ${rows.length} pins (${source}).</span>`;
-    downloadInfo.textContent = `Last export: ${rows.length} pins (${activeFilter})`;
+    downloadStatus.innerHTML = `<span class="success">${t('downloadSuccess', { count: rows.length, source })}</span>`;
+    const filterLabel = activeFilter === "all" ? t('filterAll') : activeFilter === "available" ? t('filterAvailable') : t('filterUnavailable');
+    downloadInfo.textContent = t('lastExport', { count: rows.length, filter: filterLabel });
   } catch (err) {
     downloadStatus.innerHTML = `<span class="error">✗ ${err.message}</span>`;
   } finally {
