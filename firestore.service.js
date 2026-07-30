@@ -1,11 +1,20 @@
+/**
+ * PinService — Packed Documents Model
+ * 
+ * Instead of 1 Firestore doc per pin, we store ~200 pins per document.
+ * Collection: "pinBatches" — each doc has structure:
+ *   { partitionId, batchIndex, pins: [ { pin, status, available, category } ] }
+ * 
+ * This reduces Firestore operations by ~200x for uploads/reads/deletes.
+ */
 
 class PinService {
-  constructor({ db = null, projectId, collection = "pins" } = {}) {
+  constructor({ db = null, projectId, collection = "pinBatches" } = {}) {
     this._db         = db;
     this._projectId  = projectId;
     this._collection = collection;
+    this._pinsPerDoc = 200; // max pins packed per document
   }
-
 
   get _baseUrl() {
     return `https://firestore.googleapis.com/v1/projects/${this._projectId}/databases/(default)/documents/${this._collection}`;
@@ -15,10 +24,11 @@ class PinService {
     return token ? { "Authorization": `Bearer ${token}` } : {};
   }
 
-
   get _statsRef() {
     return this._db.collection("stats").doc("global");
   }
+
+  // ─── Stats ────────────────────────────────────────────────────────────────────
 
   async getStats() {
     const snap = await this._statsRef.get();
@@ -33,128 +43,175 @@ class PinService {
     };
   }
 
+  // ─── Upload (popup, uses Firestore SDK) ───────────────────────────────────────
 
   async uploadPins(pins, partitionSize = 500) {
-    const BATCH_SIZE = 500;
-    let uploaded = 0;
-    const inc = firebase.firestore.FieldValue.increment;
     const totalPartitions = Math.max(1, Math.ceil(pins.length / partitionSize));
+    const BATCH_LIMIT = 500; // Firestore batch write limit
+    let uploaded = 0;
 
-    for (let i = 0; i < pins.length; i += BATCH_SIZE) {
-      const batch = this._db.batch();
-      const chunk = pins.slice(i, i + BATCH_SIZE);
-      for (let j = 0; j < chunk.length; j++) {
-        const pin         = chunk[j];
-        const globalIndex = i + j;
-        const partitionId = Math.floor(globalIndex / partitionSize);
-        const ref         = this._db.collection(this._collection).doc(); // auto-ID allows duplicates
-        batch.set(ref, {
-          pin,
-          status:      "pending",
-          available:   null,
-          lockedBy:    null,
-          lockedAt:    null,
-          partitionId,
-          createdAt:   firebase.firestore.FieldValue.serverTimestamp()
-        });
+    // Group pins into packed documents
+    const docs = [];
+    for (let i = 0; i < pins.length; i++) {
+      const partitionId = Math.floor(i / partitionSize);
+      const localIndex  = i % partitionSize;
+      const batchIndex  = Math.floor(localIndex / this._pinsPerDoc);
+      const docKey      = `batch_${partitionId}_${batchIndex}`;
+
+      let doc = docs.find(d => d.id === docKey);
+      if (!doc) {
+        doc = { id: docKey, partitionId, batchIndex, pins: [] };
+        docs.push(doc);
       }
-      batch.set(this._statsRef, { total: inc(chunk.length), unchecked: inc(chunk.length) }, { merge: true });
-      await batch.commit();
-      uploaded += chunk.length;
+      doc.pins.push({ pin: pins[i], status: "pending", available: null, category: "" });
     }
 
-    // Store totalPartitions in Firestore so all browsers can read it
+    // Write docs in Firestore batches (max 500 operations per batch)
+    const inc = firebase.firestore.FieldValue.increment;
+    for (let i = 0; i < docs.length; i += BATCH_LIMIT) {
+      const batch = this._db.batch();
+      const chunk = docs.slice(i, i + BATCH_LIMIT);
+      for (const doc of chunk) {
+        const ref = this._db.collection(this._collection).doc(doc.id);
+        batch.set(ref, {
+          partitionId: doc.partitionId,
+          batchIndex:  doc.batchIndex,
+          pins:        doc.pins,
+          createdAt:   firebase.firestore.FieldValue.serverTimestamp()
+        });
+        uploaded += doc.pins.length;
+      }
+      // Update stats with this chunk's pin count
+      const chunkPinCount = chunk.reduce((sum, d) => sum + d.pins.length, 0);
+      batch.set(this._statsRef, { total: inc(chunkPinCount), unchecked: inc(chunkPinCount) }, { merge: true });
+      await batch.commit();
+    }
+
+    // Store totalPartitions
     await this._statsRef.set({ totalPartitions }, { merge: true });
 
     return { uploaded, totalPartitions };
-  }  async downloadPins(filter = "all") {
-    const snap = await this._db.collection(this._collection).get();
-    return snap.docs
-      .filter(d => {
-        const val = d.data().available;
-        if (filter === "available")   return val === true;
-        if (filter === "unavailable") return val === false;
-        if (filter === "unchecked")   return val === null || val === undefined;
-        return true;
-      })
-      .map(d => {
-        const val = d.data().available;
-        const status = val === true ? "Available" : val === false ? "Unavailable" : "Unchecked";
-        return { pin: d.data().pin || d.id, status, category: d.data().category || "" };
-      });
   }
+
+  // ─── Download (popup, uses Firestore SDK) ─────────────────────────────────────
+
+  async downloadPins(filter = "all") {
+    const snap = await this._db.collection(this._collection).get();
+    const results = [];
+    snap.docs.forEach(doc => {
+      const data = doc.data();
+      if (!data.pins || !Array.isArray(data.pins)) return;
+      data.pins.forEach(p => {
+        if (filter === "available"   && p.available !== true)  return;
+        if (filter === "unavailable" && p.available !== false) return;
+        if (filter === "unchecked"   && p.available !== null && p.available !== undefined) return;
+        const status = p.available === true ? "Available" : p.available === false ? "Unavailable" : "Unchecked";
+        results.push({ pin: p.pin, status, category: p.category || "" });
+      });
+    });
+    return results;
+  }
+
+  // ─── Delete (popup, uses Firestore SDK) ────────────────────────────────────────
 
   async deletePins(filter = "all") {
     const snap = await this._db.collection(this._collection).get();
-    const toDelete = snap.docs.filter(d => {
-      const val = d.data().available;
-      if (filter === "available")   return val === true;
-      if (filter === "unavailable") return val === false;
-      if (filter === "unchecked")   return val === null || val === undefined;
-      return true;
-    });
-
+    let totalDeleted = 0;
     let dAvailable = 0, dUnavailable = 0, dUnchecked = 0;
-    toDelete.forEach(d => {
-      const val = d.data().available;
-      if (val === true)       dAvailable++;
-      else if (val === false) dUnavailable++;
-      else                    dUnchecked++;
-    });
 
-    const BATCH_SIZE = 500;
-    for (let i = 0; i < toDelete.length; i += BATCH_SIZE) {
-      const batch = this._db.batch();
-      toDelete.slice(i, i + BATCH_SIZE).forEach(d => batch.delete(d.ref));
-      await batch.commit();
+    const BATCH_LIMIT = 500;
+    const writeBatch = this._db.batch();
+    let batchCount = 0;
+
+    for (const doc of snap.docs) {
+      const data = doc.data();
+      if (!data.pins || !Array.isArray(data.pins)) continue;
+
+      if (filter === "all") {
+        // Delete entire doc
+        data.pins.forEach(p => {
+          totalDeleted++;
+          if (p.available === true) dAvailable++;
+          else if (p.available === false) dUnavailable++;
+          else dUnchecked++;
+        });
+        writeBatch.delete(doc.ref);
+        batchCount++;
+      } else {
+        // Filter pins, keep non-matching ones
+        const keep = [];
+        const remove = [];
+        data.pins.forEach(p => {
+          const matches = (filter === "available" && p.available === true) ||
+                          (filter === "unavailable" && p.available === false) ||
+                          (filter === "unchecked" && (p.available === null || p.available === undefined));
+          if (matches) remove.push(p);
+          else keep.push(p);
+        });
+
+        if (remove.length === 0) continue;
+
+        remove.forEach(p => {
+          totalDeleted++;
+          if (p.available === true) dAvailable++;
+          else if (p.available === false) dUnavailable++;
+          else dUnchecked++;
+        });
+
+        if (keep.length === 0) {
+          writeBatch.delete(doc.ref);
+        } else {
+          writeBatch.update(doc.ref, { pins: keep });
+        }
+        batchCount++;
+      }
+
+      // Commit if approaching batch limit
+      if (batchCount >= BATCH_LIMIT) {
+        await writeBatch.commit();
+        batchCount = 0;
+      }
     }
 
+    if (batchCount > 0) {
+      await writeBatch.commit();
+    }
+
+    // Update stats
     if (filter === "all") {
-      await this._statsRef.set({
-        total: 0,
-        available: 0,
-        unavailable: 0,
-        unchecked: 0,
-        totalPartitions: 1
-      });
-    } else if (toDelete.length > 0) {
+      await this._statsRef.set({ total: 0, available: 0, unavailable: 0, unchecked: 0, totalPartitions: 1 });
+    } else if (totalDeleted > 0) {
       const inc = firebase.firestore.FieldValue.increment;
       await this._statsRef.set({
-        total:       inc(-toDelete.length),
+        total:       inc(-totalDeleted),
         available:   inc(-dAvailable),
         unavailable: inc(-dUnavailable),
         unchecked:   inc(-dUnchecked)
       }, { merge: true });
     }
 
-    return toDelete.length;
+    return totalDeleted;
   }
+
+  // ─── Fetch pending pins for a partition (content script, uses REST API) ───────
 
   async fetchPartitionPins(token, partitionId) {
     const queryUrl = `https://firestore.googleapis.com/v1/projects/${this._projectId}/databases/(default)/documents:runQuery`;
     const headers  = { "Content-Type": "application/json", ...this._authHeader(token) };
 
+    // Query all batch docs for this partition
     const whereClause = partitionId !== null
-      ? {
-          compositeFilter: {
-            op: "AND",
-            filters: [
-              { fieldFilter: { field: { fieldPath: "status" },      op: "EQUAL", value: { stringValue: "pending" } } },
-              { fieldFilter: { field: { fieldPath: "partitionId" }, op: "EQUAL", value: { integerValue: String(partitionId) } } }
-            ]
-          }
-        }
-      : { fieldFilter: { field: { fieldPath: "status" }, op: "EQUAL", value: { stringValue: "pending" } } };
+      ? { fieldFilter: { field: { fieldPath: "partitionId" }, op: "EQUAL", value: { integerValue: String(partitionId) } } }
+      : undefined;
+
+    const structuredQuery = {
+      from: [{ collectionId: this._collection }]
+    };
+    if (whereClause) structuredQuery.where = whereClause;
 
     const res = await fetch(queryUrl, {
       method: "POST", headers,
-      body: JSON.stringify({
-        structuredQuery: {
-          from:  [{ collectionId: this._collection }],
-          where: whereClause
-          // no limit — fetch all pending pins for this partition
-        }
-      })
+      body: JSON.stringify({ structuredQuery })
     });
 
     if (!res.ok) {
@@ -163,53 +220,72 @@ class PinService {
     }
 
     const results = await res.json();
-    return results
-      .filter(r => r.document)
-      .map(r => {
-        const fields = r.document.fields || {};
-        const parts  = r.document.name.split("/");
-        const docId  = parts[parts.length - 1];
-        const status = fields.status?.stringValue;
-        if (status === "done" || status === "processing") return null;
-        return { docId, pin: fields.pin?.stringValue || docId };
-      })
-      .filter(Boolean);
+    const pendingPins = [];
+
+    results.filter(r => r.document).forEach(r => {
+      const fields = r.document.fields || {};
+      const parts  = r.document.name.split("/");
+      const docId  = parts[parts.length - 1];
+
+      // Parse the pins array from Firestore REST format
+      const pinsArray = fields.pins?.arrayValue?.values || [];
+      pinsArray.forEach((pinEntry, index) => {
+        const mapFields = pinEntry.mapValue?.fields || {};
+        const status    = mapFields.status?.stringValue;
+        const pin       = mapFields.pin?.stringValue;
+        if (status === "pending" && pin) {
+          pendingPins.push({ docId, pinIndex: index, pin });
+        }
+      });
+    });
+
+    return pendingPins;
   }
 
-  async updatePinDone(docId, available, token, category = "") {
-    const url = `${this._baseUrl}/${encodeURIComponent(docId)}` +
-      `?updateMask.fieldPaths=status&updateMask.fieldPaths=available&updateMask.fieldPaths=lockedBy&updateMask.fieldPaths=lockedAt&updateMask.fieldPaths=category`;
+  // ─── Update a single pin's result in its batch doc (content script, REST API) ─
 
-    const res = await fetch(url, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", ...this._authHeader(token) },
+  async updatePinDone(docId, pinIndex, available, token, category = "") {
+    // Read the batch doc
+    const getUrl = `${this._baseUrl}/${encodeURIComponent(docId)}`;
+    const headers = { "Content-Type": "application/json", ...this._authHeader(token) };
+
+    const getRes = await fetch(getUrl, { method: "GET", headers });
+    if (!getRes.ok) throw new Error(`Firestore GET error ${getRes.status}`);
+
+    const docData = await getRes.json();
+    const pinsArray = docData.fields?.pins?.arrayValue?.values || [];
+
+    // Update the specific pin at pinIndex
+    if (pinsArray[pinIndex]) {
+      pinsArray[pinIndex].mapValue.fields.status    = { stringValue: "done" };
+      pinsArray[pinIndex].mapValue.fields.available = { booleanValue: available };
+      pinsArray[pinIndex].mapValue.fields.category  = { stringValue: category };
+    }
+
+    // Write back the full pins array
+    const patchUrl = `${this._baseUrl}/${encodeURIComponent(docId)}?updateMask.fieldPaths=pins`;
+    const patchRes = await fetch(patchUrl, {
+      method: "PATCH", headers,
       body: JSON.stringify({
-        fields: {
-          status:    { stringValue: "done" },
-          available: { booleanValue: available },
-          lockedBy:  { nullValue: null },
-          lockedAt:  { nullValue: null },
-          category:  { stringValue: category }
-        }
+        fields: { pins: { arrayValue: { values: pinsArray } } }
       })
     });
 
-    if (!res.ok) throw new Error(`Firestore REST error ${res.status}: ${await res.text()}`);
+    if (!patchRes.ok) throw new Error(`Firestore PATCH error ${patchRes.status}: ${await patchRes.text()}`);
 
-    // increment available or unavailable by 1, decrement unchecked by 1
+    // Update stats atomically
     const statsField = available ? "available" : "unavailable";
     await fetch(
       `https://firestore.googleapis.com/v1/projects/${this._projectId}/databases/(default)/documents:commit`,
       {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...this._authHeader(token) },
+        method: "POST", headers,
         body: JSON.stringify({
           writes: [{
             transform: {
               document: `projects/${this._projectId}/databases/(default)/documents/stats/global`,
               fieldTransforms: [
-                { fieldPath: "unchecked",  increment: { integerValue: "-1" } },
-                { fieldPath: statsField,   increment: { integerValue: "1"  } }
+                { fieldPath: "unchecked", increment: { integerValue: "-1" } },
+                { fieldPath: statsField,  increment: { integerValue: "1" } }
               ]
             }
           }]
@@ -220,59 +296,66 @@ class PinService {
     return true;
   }
 
+  // ─── Batch update: mark multiple pins done in one doc (reduces writes) ────────
 
-  async reclaimStalePins(token, timeoutMs = 5 * 60 * 1000) {
-    const cutoff = Date.now() - timeoutMs;
-    const queryUrl = `https://firestore.googleapis.com/v1/projects/${this._projectId}/databases/(default)/documents:runQuery`;
+  async updateBatchDoc(docId, updates, token) {
+    // updates: [{ pinIndex, available, category }]
+    const getUrl = `${this._baseUrl}/${encodeURIComponent(docId)}`;
+    const headers = { "Content-Type": "application/json", ...this._authHeader(token) };
 
-    const res = await fetch(queryUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...this._authHeader(token) },
+    const getRes = await fetch(getUrl, { method: "GET", headers });
+    if (!getRes.ok) throw new Error(`Firestore GET error ${getRes.status}`);
+
+    const docData = await getRes.json();
+    const pinsArray = docData.fields?.pins?.arrayValue?.values || [];
+
+    let availableCount = 0, unavailableCount = 0;
+
+    for (const u of updates) {
+      if (pinsArray[u.pinIndex]) {
+        pinsArray[u.pinIndex].mapValue.fields.status    = { stringValue: "done" };
+        pinsArray[u.pinIndex].mapValue.fields.available = { booleanValue: u.available };
+        pinsArray[u.pinIndex].mapValue.fields.category  = { stringValue: u.category || "" };
+        if (u.available) availableCount++;
+        else unavailableCount++;
+      }
+    }
+
+    // Write back
+    const patchUrl = `${this._baseUrl}/${encodeURIComponent(docId)}?updateMask.fieldPaths=pins`;
+    const patchRes = await fetch(patchUrl, {
+      method: "PATCH", headers,
       body: JSON.stringify({
-        structuredQuery: {
-          from: [{ collectionId: this._collection }],
-          where: {
-            compositeFilter: {
-              op: "AND",
-              filters: [
-                { fieldFilter: { field: { fieldPath: "status" },   op: "EQUAL",     value: { stringValue: "processing" } } },
-                { fieldFilter: { field: { fieldPath: "lockedAt" }, op: "LESS_THAN", value: { integerValue: String(cutoff) } } }
-              ]
-            }
-          }
-        }
+        fields: { pins: { arrayValue: { values: pinsArray } } }
       })
     });
 
-    if (!res.ok) return 0;
-    const results = await res.json();
-    const stale = results.filter(r => r.document);
-    let reclaimed = 0;
+    if (!patchRes.ok) throw new Error(`Firestore PATCH error ${patchRes.status}`);
 
-    for (const r of stale) {
-      const parts = r.document.name.split("/");
-      const docId = parts[parts.length - 1];
-      try {
-        const patchUrl = `${this._baseUrl}/${encodeURIComponent(docId)}` +
-          `?updateMask.fieldPaths=status&updateMask.fieldPaths=lockedBy&updateMask.fieldPaths=lockedAt`;
-        const patchRes = await fetch(patchUrl, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json", ...this._authHeader(token) },
-          body: JSON.stringify({
-            fields: {
-              status:   { stringValue: "pending" },
-              lockedBy: { nullValue: null },
-              lockedAt: { nullValue: null }
-            }
-          })
-        });
-        if (patchRes.ok) reclaimed++;
-      } catch (_) {}
+    // Update stats
+    const transforms = [
+      { fieldPath: "unchecked", increment: { integerValue: String(-updates.length) } }
+    ];
+    if (availableCount > 0) {
+      transforms.push({ fieldPath: "available", increment: { integerValue: String(availableCount) } });
     }
-    return reclaimed;
-  }
+    if (unavailableCount > 0) {
+      transforms.push({ fieldPath: "unavailable", increment: { integerValue: String(unavailableCount) } });
+    }
 
-  async updatePinAvailability(docId, available, token) {
-    return this.updatePinDone(docId, available, token);
+    await fetch(
+      `https://firestore.googleapis.com/v1/projects/${this._projectId}/databases/(default)/documents:commit`,
+      {
+        method: "POST", headers,
+        body: JSON.stringify({
+          writes: [{ transform: {
+            document: `projects/${this._projectId}/databases/(default)/documents/stats/global`,
+            fieldTransforms: transforms
+          }}]
+        })
+      }
+    ).catch(e => console.warn("[PinService] stats batch update failed:", e));
+
+    return true;
   }
 }

@@ -6,9 +6,11 @@ if (!location.href.startsWith("https://redeem.hype.games/widget")) {
 }
 
 const STORAGE_KEY = "pinmanager_state";   // chrome.storage.local key
+const BUFFER_KEY  = "pinmanager_buffer";  // buffered results awaiting flush
+const FLUSH_EVERY = 10;                   // flush to Firestore every N pins
 
 const pinService = new PinService({ projectId: "pv-extract" });
-// const pinService = new PinService({ projectId: "pin-checker-d183d" });
+
 let running = false;
 
 // ─── On page load — resume if state exists ────────────────────────────────────
@@ -18,12 +20,13 @@ window.addEventListener("load", async () => {
   const stored = await chromeGet(STORAGE_KEY);
   if (!stored || !stored.running) return;
 
-  // If this load was triggered by the start message (pins is empty array set by message listener),
-  // the message listener already called processQueue — don't double-run
   if (running) return;
 
   running = true;
   console.log("[PinManager] Resuming worker", stored.workerId, "— remaining:", stored.pins?.length);
+
+  // Flush any buffered results from before the reload
+  await flushBuffer(stored.token);
 
   await waitForElement("#hpws-pin", 10000);
   await processQueue(stored.workerId, stored.token, stored.partitionId ?? null, stored.pins || []);
@@ -35,6 +38,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (running) { sendResponse({ ok: false, reason: "already running" }); return; }
     running = true;
 
+    // Clear any stale buffer from previous runs
+    chromeRemove(BUFFER_KEY);
     chromeSet(STORAGE_KEY, { running: true, workerId: msg.workerId, token: msg.token, partitionId: msg.partitionId, pins: [] })
       .then(() => waitForElement("#hpws-pin", 8000))
       .then(() => processQueue(msg.workerId, msg.token, msg.partitionId, []));
@@ -44,12 +49,72 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
   if (msg.action === "stop") {
     running = false;
+    // Flush remaining buffer before stopping
+    chromeGet(STORAGE_KEY).then(stored => {
+      if (stored?.token) flushBuffer(stored.token);
+    });
     chromeRemove(STORAGE_KEY);
     sendResponse({ ok: true });
   }
 });
 
 
+// ─── Buffer & Flush Logic ─────────────────────────────────────────────────────
+
+/**
+ * Add a result to the local buffer. Flush when buffer reaches FLUSH_EVERY.
+ * Buffer format: { [docId]: [{ pinIndex, available, category }] }
+ */
+async function bufferResult(docId, pinIndex, available, category, token) {
+  const buffer = await chromeGet(BUFFER_KEY) || {};
+  if (!buffer[docId]) buffer[docId] = [];
+  buffer[docId].push({ pinIndex, available, category });
+
+  // Count total buffered results
+  const totalBuffered = Object.values(buffer).reduce((sum, arr) => sum + arr.length, 0);
+  await chromeSet(BUFFER_KEY, buffer);
+
+  console.log(`[PinManager] Buffered result (${totalBuffered}/${FLUSH_EVERY})`);
+
+  // Flush if we've hit the threshold
+  if (totalBuffered >= FLUSH_EVERY) {
+    await flushBuffer(token);
+  }
+}
+
+/**
+ * Flush all buffered results to Firestore.
+ * Groups updates by docId and uses updateBatchDoc for each.
+ */
+async function flushBuffer(token) {
+  const buffer = await chromeGet(BUFFER_KEY);
+  if (!buffer || Object.keys(buffer).length === 0) return;
+
+  console.log("[PinManager] Flushing buffer to Firestore...");
+
+  for (const [docId, updates] of Object.entries(buffer)) {
+    try {
+      await pinService.updateBatchDoc(docId, updates, token);
+      console.log(`[PinManager] Flushed ${updates.length} results to doc ${docId}`);
+    } catch (err) {
+      console.error(`[PinManager] Flush failed for doc ${docId}:`, err);
+      // Keep failed entries in buffer for retry on next flush
+      const currentBuffer = await chromeGet(BUFFER_KEY) || {};
+      // Only keep this docId's entries if they weren't already cleared
+      if (currentBuffer[docId]) {
+        // Leave it for next attempt
+        return;
+      }
+    }
+  }
+
+  // Clear buffer after successful flush
+  await chromeRemove(BUFFER_KEY);
+  console.log("[PinManager] Buffer flushed successfully");
+}
+
+// ─── Process queue (packed documents model + buffered writes) ────────────────
+// pins array format: [{ docId, pinIndex, pin }]
 async function processQueue(workerId, token, partitionId, pins) {
   if (!running) return;
 
@@ -68,17 +133,18 @@ async function processQueue(workerId, token, partitionId, pins) {
 
     if (!allPins || allPins.length === 0) {
       console.log("[PinManager] No pending pins in partition", partitionId);
+      // Flush any remaining buffer before finishing
+      await flushBuffer(token);
       await finishWorker(workerId);
       return;
     }
 
     pins = allPins;
     console.log("[PinManager] Fetched", pins.length, "pins for partition", partitionId);
-    // Save full list to storage so reloads can resume
     await chromeSet(STORAGE_KEY, { running: true, workerId, token, partitionId, pins });
   }
 
-  const { pin, docId } = pins[0];
+  const { pin, docId, pinIndex } = pins[0];
   const remaining = pins.slice(1);
 
   const result = await tryPin(pin);
@@ -87,11 +153,8 @@ async function processQueue(workerId, token, partitionId, pins) {
 
   if (result !== null) {
     const { available, category } = result;
-    try {
-      await pinService.updatePinDone(docId, available, token, category);
-    } catch (err) {
-      console.error("[PinManager] updatePinDone failed:", err);
-    }
+    // Buffer the result instead of writing to Firestore immediately
+    await bufferResult(docId, pinIndex, available, category, token);
     if (!running) return;
     await appendLocalResult(partitionId, { pin, available, category });
     chrome.runtime.sendMessage({ action: "pinResult", pin, docId, success: available }).catch(() => {});
@@ -100,6 +163,13 @@ async function processQueue(workerId, token, partitionId, pins) {
   }
 
   if (!running) return;
+
+  // If no more pins, flush buffer and finish
+  if (remaining.length === 0) {
+    await flushBuffer(token);
+    await finishWorker(workerId);
+    return;
+  }
 
   // Save remaining and reload for next pin
   await chromeSet(STORAGE_KEY, { running: true, workerId, token, partitionId, pins: remaining });
@@ -110,6 +180,7 @@ async function processQueue(workerId, token, partitionId, pins) {
 async function finishWorker(workerId) {
   running = false;
   await chromeRemove(STORAGE_KEY);
+  await chromeRemove(BUFFER_KEY);
   chrome.runtime.sendMessage({ action: "done", workerId }).catch(() => {});
 }
 
@@ -156,12 +227,10 @@ async function tryPin(pin) {
 
   // Available if redeem-form is present
   if (container.querySelector("#redeem-form")) {
-    // Find the h1 that contains a <strong> tag for the category
     const h1WithStrong = container.querySelector("h1 strong");
     const fullText = h1WithStrong?.textContent?.trim() || "";
-    // e.g. "Free Fire - 1060 Diamantes + 10 de Bonus - Colombia" → "1060 Diamantes"
     const category = fullText.split("-")[1]?.split("+")[0]?.trim() || fullText;
-    console.log({category , fullText})
+    console.log({ category, fullText });
     return { available: true, category };
   }
 

@@ -202,14 +202,7 @@ const firebaseConfig = {
   messagingSenderId: "17827015798",
   appId: "1:17827015798:web:790c74368a2605d7848357"
 };
-// const firebaseConfig = {
-//   apiKey: "AIzaSyDxClYC9e2YmrbLITLmcj3daGD1pbj-8JA",
-//   authDomain: "pin-checker-d183d.firebaseapp.com",
-//   projectId: "pin-checker-d183d",
-//   storageBucket: "pin-checker-d183d.firebasestorage.app",
-//   messagingSenderId: "656085087991",
-//   appId: "1:656085087991:web:b2b5fa79f0b022e36985f2"
-// };
+
 
 if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
 const db   = firebase.firestore();
@@ -217,7 +210,7 @@ const auth = firebase.auth();
 
 // ─── Service ──────────────────────────────────────────────────────────────────
 const pinService = new PinService({ db, projectId: "pv-extract" });
-// const pinService = new PinService({ db, projectId: "pin-checker-d183d" });
+
 
 const UUID_REGEX = /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/g;
 
@@ -487,7 +480,19 @@ function updatePartitionSelector(totalPartitions) {
     select.appendChild(opt);
   }
   info.textContent = t('partitionInfo', { totalPartitions });
+
+  // Restore previously selected partition
+  chrome.storage.local.get("selectedPartition", data => {
+    if (data.selectedPartition !== undefined && data.selectedPartition < totalPartitions) {
+      select.value = data.selectedPartition;
+    }
+  });
 }
+
+// Persist partition selection on change
+document.getElementById("partition-select")?.addEventListener("change", (e) => {
+  chrome.storage.local.set({ selectedPartition: parseInt(e.target.value) });
+});
 
 // ─── Automation ───────────────────────────────────────────────────────────────
 const startBtn  = document.getElementById("start-btn");
@@ -649,19 +654,25 @@ document.getElementById("download-btn").addEventListener("click", async () => {
   downloadBtn.disabled = true;
   downloadStatus.innerHTML = `<span class="spinner"></span> ${t('fetchingPins')}`;
   try {
-    // Check local cache first — keyed by selected partition
+    let rows;
+
+    // Always fetch from Firestore for accurate complete data
+    rows = await pinService.downloadPins(activeFilter);
+
+    // Also merge in any locally cached results not yet flushed to Firestore
     const partitionSelect = document.getElementById("partition-select");
     const partitionId     = partitionSelect?.value !== "" ? partitionSelect.value : "all";
     const cacheKey        = `pinresults_${partitionId}`;
     const cached          = await new Promise(r => chrome.storage.local.get(cacheKey, d => r(d[cacheKey] || null)));
 
-    let rows;
     if (cached && cached.length > 0) {
-      rows = cached
+      // Add cached results that aren't already in the Firestore results (unflushed buffer)
+      const existingPins = new Set(rows.map(r => r.pin));
+      const extraRows = cached
         .filter(r => {
+          if (existingPins.has(r.pin)) return false;
           if (activeFilter === "available")   return r.available === true;
           if (activeFilter === "unavailable") return r.available === false;
-          if (activeFilter === "unchecked")   return r.available === null;
           return true;
         })
         .map(r => ({
@@ -669,8 +680,7 @@ document.getElementById("download-btn").addEventListener("click", async () => {
           status:   r.available === true ? "Available" : r.available === false ? "Unavailable" : "Unchecked",
           category: r.category || ""
         }));
-    } else {
-      rows = await pinService.downloadPins(activeFilter);
+      rows = rows.concat(extraRows);
     }
 
     if (!rows.length) {
@@ -693,7 +703,7 @@ document.getElementById("download-btn").addEventListener("click", async () => {
     const a    = document.createElement("a");
     a.href = url; a.download = filename; a.click();
     URL.revokeObjectURL(url);
-    const source = cached ? "local cache" : "Firestore";
+    const source = "Firestore";
     downloadStatus.innerHTML = `<span class="success">${t('downloadSuccess', { count: rows.length, source })}</span>`;
     const filterLabel = activeFilter === "all" ? t('filterAll') : activeFilter === "available" ? t('filterAvailable') : t('filterUnavailable');
     downloadInfo.textContent = t('lastExport', { count: rows.length, filter: filterLabel });
